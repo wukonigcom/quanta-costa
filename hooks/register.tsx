@@ -12,6 +12,20 @@ const EMPTY: Snapshot = {
   othersUsd: 0,
   now: 0,
 }
+const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+
+// The stored snapshot may come from an older version (state survives a reload or an update
+// mid-session) and lack fields. Fill every one, so no sum turns into NaN.
+export const normalize = (s: Partial<Snapshot> | null | undefined): Snapshot => ({
+  limits: Array.isArray(s?.limits) ? s.limits : [],
+  usd: typeof s?.usd === 'number' && Number.isFinite(s.usd) ? s.usd : null,
+  baseUsd: num(s?.baseUsd),
+  tokens: num(s?.tokens),
+  baseTokens: num(s?.baseTokens),
+  othersUsd: num(s?.othersUsd),
+  now: num(s?.now),
+})
+
 const snap = atom({ plugin: 'quanta-costa', key: 'snap' } as const, EMPTY)
 const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, false)
 
@@ -166,23 +180,23 @@ const book = async ($: EngineInterface, usd: number, key: string) => {
   const id = await $.session.id()
   const ledger = ((await $.store.get(LEDGER)) ?? {}) as Ledger
   const period = { ...(ledger[key] ?? {}) }
-  period[id] = Math.max(period[id] ?? 0, usd)
+  period[id] = Math.max(num(period[id]), usd)
   const kept = Object.keys({ ...ledger, [key]: period })
     .sort()
     .slice(-KEEP_PERIODS)
   const next: Ledger = {}
   for (const k of kept) next[k] = k === key ? period : (ledger[k] ?? {})
   await $.store.set(LEDGER, next)
-  return Object.entries(period).reduce((sum, [sid, v]) => (sid === id ? sum : sum + v), 0)
+  return Object.entries(period).reduce((sum, [sid, v]) => (sid === id ? sum : sum + num(v)), 0)
 }
 
 // With a plan price set: book this session's cost and learn what the period's others cost.
 const bookPeriod = async ($: EngineInterface, planPrice: number, billingDay: number) => {
   if (planPrice <= 0) return
-  const { usd } = await read($, snap)
+  const { usd } = normalize(await read($, snap))
   const now = await $.clock.now()
   const othersUsd = await book($, usd ?? 0, periodKey(now, billingDay))
-  await update($, snap, s => ({ ...s, othersUsd }))
+  await update($, snap, s => ({ ...normalize(s), othersUsd }))
 }
 
 const colorFor = (percentUsed: number) =>
@@ -192,9 +206,9 @@ const refresh = async ($: EngineInterface) => {
   const usage = await $.session.usage()
   const now = await $.clock.now()
   await update($, snap, s => ({
-    ...s,
-    limits: usage.rateLimits.length > 0 ? usage.rateLimits.map(toLimit) : s.limits,
-    usd: usage.cost?.usd ?? s.usd,
+    ...normalize(s),
+    limits: usage.rateLimits.length > 0 ? usage.rateLimits.map(toLimit) : normalize(s).limits,
+    usd: usage.cost?.usd ?? normalize(s).usd,
     now,
   }))
 }
@@ -208,10 +222,13 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await refresh($).catch(() => undefined)
     // Loaded mid-session: "last prompt" starts at zero, not at the whole session.
-    await update($, snap, s => (s.baseUsd === 0 ? { ...s, baseUsd: s.usd ?? 0 } : s))
+    await update($, snap, s => {
+      const f = normalize(s)
+      return f.baseUsd === 0 ? { ...f, baseUsd: f.usd ?? 0 } : f
+    })
     await bookPeriod($, planPrice, billingDay).catch(() => undefined)
     $.clock.every(60_000, () => {
-      void $.clock.now().then(now => update($, snap, s => ({ ...s, now })))
+      void $.clock.now().then(now => update($, snap, s => ({ ...normalize(s), now })))
     })
     return next(e)
   })
@@ -220,10 +237,10 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const usage = await $.session.usage()
     await update($, snap, s => ({
-      ...s,
-      usd: usage.cost?.usd ?? s.usd,
-      baseUsd: usage.cost?.usd ?? s.usd ?? 0,
-      baseTokens: s.tokens,
+      ...normalize(s),
+      usd: usage.cost?.usd ?? normalize(s).usd,
+      baseUsd: usage.cost?.usd ?? normalize(s).usd ?? 0,
+      baseTokens: normalize(s).tokens,
     }))
     return next(e)
   })
@@ -241,7 +258,10 @@ export const register: Register = (on, options) => {
     if (u) {
       const sum =
         u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
-      await update($, snap, s => ({ ...s, tokens: s.tokens + sum }))
+      await update($, snap, s => {
+        const f = normalize(s)
+        return { ...f, tokens: f.tokens + sum }
+      })
     }
     return next(e)
   })
@@ -249,9 +269,9 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     const now = await $.clock.now()
     await update($, snap, s => ({
-      ...s,
-      limits: e.rateLimits.length > 0 ? e.rateLimits.map(toLimit) : s.limits,
-      usd: e.cost?.usd ?? s.usd,
+      ...normalize(s),
+      limits: e.rateLimits.length > 0 ? e.rateLimits.map(toLimit) : normalize(s).limits,
+      usd: e.cost?.usd ?? normalize(s).usd,
       now,
     }))
     await bookPeriod($, planPrice, billingDay).catch(() => undefined)
@@ -267,7 +287,7 @@ export const register: Register = (on, options) => {
     if (e.props.hasSurvey) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const s = await read($, snap)
+    const s = normalize(await read($, snap))
     const isOpen = await read($, isHelpOpen)
     const now = s.now || (await $.clock.now())
 
