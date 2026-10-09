@@ -3,7 +3,15 @@ import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
 import type { Limit, Snapshot } from '../types'
 
-const EMPTY: Snapshot = { limits: [], usd: null, baseUsd: 0, tokens: 0, baseTokens: 0, now: 0 }
+const EMPTY: Snapshot = {
+  limits: [],
+  usd: null,
+  baseUsd: 0,
+  tokens: 0,
+  baseTokens: 0,
+  othersUsd: 0,
+  now: 0,
+}
 const snap = atom({ plugin: 'quanta-costa', key: 'snap' } as const, EMPTY)
 const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, false)
 
@@ -110,6 +118,73 @@ const shortDate = (ms: number, timeZone?: string) => {
   }
 }
 
+// "Fri 14:00" in local time.
+const weekdayTime = (ms: number, timeZone?: string) => {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(ms))
+    const get = (type: string) => parts.find(p => p.type === type)?.value ?? ''
+    return `${get('weekday')} ${get('hour')}:${get('minute')}`
+  } catch {
+    return new Date(ms).toISOString().slice(11, 16)
+  }
+}
+
+// Extrapolates the weekly usage so far: null while too early to tell, else whether it
+// lasts until the reset or when it would run out.
+export const pace = (limit: Limit, nowMs: number): { isOnTrack: boolean; runsOutAt: number } | null => {
+  if (limit.kind !== 'seven_day' || !limit.resetsAt) return null
+  const resetsAt = Date.parse(limit.resetsAt)
+  const start = resetsAt - 7 * DAY
+  const elapsed = nowMs - start
+  if (elapsed < 3 * 3_600_000 || limit.percentUsed < 2) return null
+  const runsOutAt = start + (elapsed * 100) / limit.percentUsed
+  return { isOnTrack: runsOutAt >= resetsAt, runsOutAt }
+}
+
+// The period a session's cost is booked to: the billing period, or the calendar month without a billing day.
+export const periodKey = (nowMs: number, billingDay: number, timeZone?: string) => {
+  if (billingDay >= 1 && billingDay <= 31) {
+    return new Date(billingPeriod(nowMs, billingDay, timeZone).start).toISOString().slice(0, 10)
+  }
+  const { y, m } = localDate(nowMs, timeZone)
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10)
+}
+
+type Ledger = Record<string, Record<string, number>>
+const LEDGER = 'ledger'
+const KEEP_PERIODS = 3
+
+// Books this session's cost to its period in the store kept across sessions, and returns
+// what the period's other sessions cost.
+const book = async ($: EngineInterface, usd: number, key: string) => {
+  const id = await $.session.id()
+  const ledger = ((await $.store.get(LEDGER)) ?? {}) as Ledger
+  const period = { ...(ledger[key] ?? {}) }
+  period[id] = Math.max(period[id] ?? 0, usd)
+  const kept = Object.keys({ ...ledger, [key]: period })
+    .sort()
+    .slice(-KEEP_PERIODS)
+  const next: Ledger = {}
+  for (const k of kept) next[k] = k === key ? period : (ledger[k] ?? {})
+  await $.store.set(LEDGER, next)
+  return Object.entries(period).reduce((sum, [sid, v]) => (sid === id ? sum : sum + v), 0)
+}
+
+// With a plan price set: book this session's cost and learn what the period's others cost.
+const bookPeriod = async ($: EngineInterface, planPrice: number, billingDay: number) => {
+  if (planPrice <= 0) return
+  const { usd } = await read($, snap)
+  const now = await $.clock.now()
+  const othersUsd = await book($, usd ?? 0, periodKey(now, billingDay))
+  await update($, snap, s => ({ ...s, othersUsd }))
+}
+
 const colorFor = (percentUsed: number) =>
   percentUsed >= 90 ? 'error' : percentUsed >= 70 ? 'warning' : 'success'
 
@@ -128,11 +203,13 @@ export const register: Register = (on, options) => {
   const billingDay = typeof options.billingDay === 'number' ? Math.round(options.billingDay) : 0
   const currency = options.currency === 'EUR' ? 'EUR' : 'USD'
   const eurRate = typeof options.eurRate === 'number' ? options.eurRate : 0.89238
+  const planPrice = typeof options.planPrice === 'number' ? options.planPrice : 0
 
   on('session.start', async ($, e, next) => {
     await refresh($).catch(() => undefined)
     // Loaded mid-session: "last prompt" starts at zero, not at the whole session.
     await update($, snap, s => (s.baseUsd === 0 ? { ...s, baseUsd: s.usd ?? 0 } : s))
+    await bookPeriod($, planPrice, billingDay).catch(() => undefined)
     $.clock.every(60_000, () => {
       void $.clock.now().then(now => update($, snap, s => ({ ...s, now })))
     })
@@ -177,6 +254,7 @@ export const register: Register = (on, options) => {
       usd: e.cost?.usd ?? s.usd,
       now,
     }))
+    await bookPeriod($, planPrice, billingDay).catch(() => undefined)
     return next(e)
   })
 
@@ -201,6 +279,10 @@ export const register: Register = (on, options) => {
     const lastUsd = s.usd === null ? null : Math.max(0, s.usd - s.baseUsd)
     const lastTokens = Math.max(0, s.tokens - s.baseTokens)
     const period = billingDay >= 1 && billingDay <= 31 ? billingPeriod(now, billingDay) : null
+    const forecast = week ? pace(week, now) : null
+    const periodUsd = s.othersUsd + (s.usd ?? 0)
+    const planUsd = currency === 'EUR' ? planPrice / eurRate : planPrice
+    const valueRatio = planPrice > 0 ? periodUsd / planUsd : null
 
     const label = (text: string) => (
       <Box width={8} flexShrink={0}>
@@ -229,9 +311,14 @@ export const register: Register = (on, options) => {
             {label(NAMES[week.kind] ?? week.kind)}
             <Text color={colorFor(week.percentUsed)}>{bar(week.percentUsed)}</Text>
             <Text>
-              {`${Math.round(week.percentUsed)}% used · ${Math.max(0, 100 - Math.round(week.percentUsed))}% free` +
-                (week.resetsAt ? ` (resets ${shortDate(Date.parse(week.resetsAt))})` : '')}
+              {`${Math.round(week.percentUsed)}% used · ${Math.max(0, 100 - Math.round(week.percentUsed))}% free`}
             </Text>
+            {forecast ? (
+              <Text color={forecast.isOnTrack ? 'success' : 'warning'}>
+                {forecast.isOnTrack ? '· on track' : `· runs out ${weekdayTime(forecast.runsOutAt)}`}
+              </Text>
+            ) : null}
+            {week.resetsAt ? <Text>{`(resets ${shortDate(Date.parse(week.resetsAt))})`}</Text> : null}
           </Box>
         ) : (
           <Text dimColor>Week: no reading yet, it appears with the next reply.</Text>
@@ -248,6 +335,21 @@ export const register: Register = (on, options) => {
             onPress={() => update($, isHelpOpen, open => !open)}
           />
         </Box>
+
+        {valueRatio !== null ? (
+          <Box key="value" gap={1}>
+            {label('Value')}
+            <Text color={valueRatio >= 1 ? 'success' : 'suggestion'}>{bar(valueRatio * 100)}</Text>
+            <Text>
+              {`${money(periodUsd, currency, eurRate)} API value vs ${money(planUsd, currency, eurRate)} plan`}
+            </Text>
+            {valueRatio >= 1 ? (
+              <Text color="success" bold>{`(${valueRatio.toFixed(1)}×)`}</Text>
+            ) : (
+              <Text>{`(${valueRatio.toFixed(1)}×)`}</Text>
+            )}
+          </Box>
+        ) : null}
 
         {isShortTight && short ? (
           <Text color="warning">
@@ -283,6 +385,14 @@ export const register: Register = (on, options) => {
               Tokens: everything the model read and wrote, cache included, counted since Quanta Costa started. The cost always covers the whole session.
             </Text>
             <Text>Last prompt: everything since your last prompt.</Text>
+            <Text>
+              Pace: Quanta Costa extrapolates your usage so far this week. "on track" means it lasts until the reset, otherwise it shows when it would run out.
+            </Text>
+            {valueRatio !== null ? (
+              <Text>
+                Value: the API value of all sessions in this period (those where Quanta Costa ran) against your plan price. Above 1× your plan has paid for itself.
+              </Text>
+            ) : null}
             {currency === 'EUR' ? (
               <Text dimColor>{`Euro: converted at $1 = €${eurRate} (setting eurRate).`}</Text>
             ) : null}

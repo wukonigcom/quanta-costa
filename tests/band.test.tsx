@@ -49,7 +49,9 @@ test(
       expect(
         await ui.find({ text: /1\.4 of 4\.3 weeks gone · 2\.9 wk left · renews in 20 days/ }),
       ).toBeDefined()
-      expect(await ui.find({ text: /42% used · 58% free \(resets Oct 12\)/ })).toBeDefined()
+      expect(await ui.find({ text: /^42% used · 58% free$/ })).toBeDefined()
+      expect(await ui.find({ text: /^· on track$/ })).toBeDefined()
+      expect(await ui.find({ text: /^\(resets Oct 12\)$/ })).toBeDefined()
       expect(await ui.find({ text: /€8\.92/ })).toBeDefined()
       expect(await ui.find({ text: /5-hour limit 85% used · resets in 6h 0m/ })).toBeDefined()
       expect(await ui.find({ text: /hypothetical/ })).toBeUndefined()
@@ -99,3 +101,53 @@ test('No subscription limits: help says the costs are real', async ($, on) => {
   expect(await ui.find({ text: /costs are real/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('Pace: a fast week says when it runs out', async ($, on) => {
+  world(on)
+  await $.session.measure({
+    context: { window: 200_000 },
+    rateLimits: [{ kind: 'seven_day', percentUsed: 85, resetsAt: '2026-10-12T12:00:00Z' }],
+    cost: { usd: 1 },
+    changed: ['rateLimits', 'cost'],
+  })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  // 85% in 4 of 7 days: empty after about 4.7 days, on Saturday.
+  expect(await ui.find({ text: /^· runs out Sat \d\d:\d\d$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test(
+  'Value: this period against the plan price, other sessions included',
+  { options: { billingDay: 29, currency: 'EUR', planPrice: 5 } },
+  async ($, on) => {
+    world(on)
+    mock.store(on, { ledger: { '2026-09-29': { 'earlier-session': 3 } } })
+    on('session.id', () => ({ value: 'this-session' }))
+    await $.session.measure({
+      context: { window: 200_000 },
+      rateLimits: LIMITS,
+      cost: { usd: 10 },
+      changed: ['rateLimits', 'cost'],
+    })
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      // $13 of API value = €11.60; €5 plan: 2.3 times paid off.
+      expect(await ui.find({ text: /^€11\.60 API value vs €5\.00 plan$/ })).toBeDefined()
+      expect(await ui.find({ text: /^\(2\.3×\)$/ })).toBeDefined()
+      await ui.unmount()
+    }
+
+    // Booking the same session again replaces its amount, it does not add up.
+    await $.session.measure({
+      context: { window: 200_000 },
+      rateLimits: LIMITS,
+      cost: { usd: 10 },
+      changed: ['cost'],
+    })
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ text: /^\(2\.3×\)$/ })).toBeDefined()
+    await ui.unmount()
+  },
+)

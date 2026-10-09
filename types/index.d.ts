@@ -6,6 +6,7 @@ export type Snapshot = {
   baseUsd: number
   tokens: number
   baseTokens: number
+  othersUsd: number
   now: number
 }
 
