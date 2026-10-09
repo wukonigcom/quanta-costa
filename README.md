@@ -3,6 +3,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757.svg)](https://claude.com/claude-code)
 
+![Quanta Costa: Claude Code usage limits, pace forecast and session cost, shown right above the prompt](assets/social-preview.png)
+
 **How much of your Claude plan is left, and what is this session costing you?**
 Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answers both at a glance. It shows your **billing period**, your **weekly usage limit** with a **pace forecast**, the **cost of the current session** in tokens and dollars or euros, and whether your **plan pays off**, as a compact band right above the prompt. It works in the terminal and in the Claude desktop app.
 

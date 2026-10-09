@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quanta Costa social preview</title>
+<style>
+  :root {
+    --bg: #161412;
+    --panel: #0c0b0a;
+    --line: #34302c;
+    --text: #e9e6e2;
+    --muted: #9b958e;
+    --accent: #d97757;
+    --blue: #7ea6f2;
+    --green: #5cc06a;
+    --dim: #4a4540;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    background: var(--bg);
+    border-top: 8px solid var(--accent);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    padding: 64px 80px 56px;
+    display: flex;
+    flex-direction: column;
+  }
+  .head { display: flex; align-items: center; gap: 28px; }
+  .logo {
+    font-family: "Segoe UI Emoji", sans-serif;
+    font-size: 112px;
+    line-height: 1;
+    transform: rotate(-8deg);
+  }
+  .kicker {
+    display: inline-block;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    border: 1.5px solid rgba(217, 119, 87, 0.55);
+    border-radius: 999px;
+    padding: 4px 14px;
+    margin-bottom: 8px;
+  }
+  h1 { font-size: 84px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+  .tagline { margin-top: 26px; font-size: 30px; color: #cfcac4; max-width: 1080px; }
+  .tagline b { color: var(--text); font-weight: 600; }
+  .band {
+    margin-top: 34px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 22px 28px;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 25px;
+    line-height: 1.55;
+    white-space: pre;
+    width: fit-content;
+  }
+  .band .em { font-family: "Segoe UI Emoji", sans-serif; }
+  .l { color: var(--text); font-weight: 700; }
+  .t { color: #d6d1cb; }
+  .blue { color: var(--blue); }
+  .green { color: var(--green); }
+  .dim { color: var(--dim); }
+  .ok { color: var(--green); font-weight: 700; }
+  .bar {
+    display: inline-block;
+    width: 7.2em;
+    height: 0.62em;
+    vertical-align: 0.05em;
+    border-radius: 4px;
+    background: #2a2622;
+    overflow: hidden;
+  }
+  .bar i { display: block; height: 100%; border-radius: 4px; }
+  .bar.blue i { background: var(--blue); }
+  .bar.green i { background: var(--green); }
+  .foot {
+    margin-top: auto;
+    white-space: nowrap;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 22px;
+    color: var(--muted);
+  }
+  .cmd {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 20px;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 14px;
+  }
+</style>
+</head>
+<body>
+  <div class="head">
+    <div class="logo">🧾</div>
+    <div>
+      <div class="kicker">CLAUDE CODE PLUGIN</div>
+      <h1>Quanta Costa</h1>
+    </div>
+  </div>
+
+  <p class="tagline">Your <b>Claude usage limits</b>, <b>pace</b> and <b>session cost</b>, right above the prompt.</p>
+
+  <div class="band"><span class="l">Period </span>  <span class="bar blue"><i style="width:33%"></i></span>  <span class="t">1.4 of 4.3 weeks gone · 2.9 wk left</span>
+<span class="l">Week   </span>  <span class="bar green"><i style="width:50%"></i></span>  <span class="t">50% used · 50% free · </span><span class="ok">on track</span>
+<span class="l">Session</span>  <span class="t">3.3M tokens · $4.95 · last prompt $0.07</span>
+<span class="l">Value  </span>  <span class="bar green"><i style="width:100%"></i></span>  <span class="t">$412 API value vs $200 plan </span><span class="ok">(2.1×)</span></div>
+
+  <div class="foot">
+    <span>github.com/wukonigcom/quanta-costa</span>
+    <span class="cmd">Free &amp; open source · MIT · terminal &amp; desktop</span>
+  </div>
+</body>
+</html>
