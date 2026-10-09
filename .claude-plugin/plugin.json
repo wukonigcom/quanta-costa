@@ -1,0 +1,30 @@
+{
+  "name": "quanta-costa",
+  "version": "1.0.0",
+  "description": "Quanta Costa: your Claude subscription period, weekly limit and session cost (tokens and money) as bars right above the Claude Code prompt.",
+  "author": { "name": "Jörg Wukonig" },
+  "license": "MIT",
+  "keywords": ["claude-code", "usage", "limits", "rate-limit", "cost", "tokens", "statusline"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "billingDay": {
+      "type": "number",
+      "title": "Billing day",
+      "description": "Day of the month your Claude subscription renews (1 to 31). It is on your Anthropic receipt. 0 hides the Period row.",
+      "default": 0
+    },
+    "currency": {
+      "type": "string",
+      "title": "Currency",
+      "description": "Show costs in US dollars or euros.",
+      "options": ["USD", "EUR"],
+      "default": "USD"
+    },
+    "eurRate": {
+      "type": "number",
+      "title": "USD to EUR rate",
+      "description": "Euros per US dollar, used when currency is EUR. Default: ECB rate of 2026-10-09.",
+      "default": 0.89238
+    }
+  }
+}

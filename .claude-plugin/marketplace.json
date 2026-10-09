@@ -1,0 +1,12 @@
+{
+  "name": "quanta-costa",
+  "owner": { "name": "Jörg Wukonig" },
+  "description": "Quanta Costa: Claude subscription period, weekly limit and session cost above the Claude Code prompt.",
+  "plugins": [
+    {
+      "name": "quanta-costa",
+      "source": "./",
+      "description": "See how much of your Claude plan is left and what this session costs, in tokens and dollars or euros, right above the prompt."
+    }
+  ]
+}
