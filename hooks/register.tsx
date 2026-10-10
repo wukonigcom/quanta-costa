@@ -32,6 +32,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
+export const VERSION = '1.3.1'
 
 export type Lang = 'en' | 'de'
 const LOCALE: Record<Lang, string> = { en: 'en-US', de: 'de-AT' }
@@ -251,6 +252,7 @@ type Texts = {
   helpValue: string
   helpEuro: (rate: string) => string
   helpNotices: string
+  helpActive: (billingDay: string, currency: string, plan: string) => string
   warnWeek: (percent: string, resets: string, runsOut?: string) => string
   freshWeek: (free: string) => string
   review: (start: string, end: string, value: string, ratio?: string) => string
@@ -298,6 +300,8 @@ const TEXTS: Record<Lang, Texts> = {
     helpEuro: rate => `Euro: converted at $1 = €${rate} (setting eurRate).`,
     helpNotices:
       'Notices: Quanta Costa tells you once when the week passes 80% and 90%, when a fresh week starts, and at the end of each period how much it was worth.',
+    helpActive: (billingDay, currency, plan) =>
+      `Active settings: language en · billing day ${billingDay} · ${currency} · plan ${plan} · version ${VERSION}`,
     warnWeek: (percent, resets, runsOut) =>
       `Quanta Costa: ${percent} of your weekly limit used, it resets ${resets}.` +
       (runsOut ? ` At this pace it runs out ${runsOut}.` : ''),
@@ -346,6 +350,8 @@ const TEXTS: Record<Lang, Texts> = {
     helpEuro: rate => `Euro: umgerechnet mit 1 $ = ${rate} € (Einstellung eurRate).`,
     helpNotices:
       'Hinweise: Quanta Costa meldet sich je einmal, wenn die Woche 80 % und 90 % erreicht, wenn eine neue Woche startet und am Ende jeder Periode mit ihrem Wert.',
+    helpActive: (billingDay, currency, plan) =>
+      `Aktive Einstellungen: Sprache de · Abrechnungstag ${billingDay} · ${currency} · Abo ${plan} · Version ${VERSION}`,
     warnWeek: (percent, resets, runsOut) =>
       `Quanta Costa: ${percent} deines Wochenlimits verbraucht, neu ab ${resets}.` +
       (runsOut ? ` Bei diesem Tempo leer ab ${runsOut}.` : ''),
@@ -532,6 +538,29 @@ export const register: Register = (on, options) => {
     const planUsd = currency === 'EUR' ? planPrice / eurRate : planPrice
     const valueRatio = planPrice > 0 ? periodUsd / planUsd : null
 
+    const off = lang === 'de' ? 'aus' : 'off'
+
+    // "Title: body" becomes a bold title over its own paragraph.
+    const helpItem = (text: string, color?: 'success' | 'warning') => {
+      const cut = text.indexOf(': ')
+      const title = cut > 0 ? text.slice(0, cut) : ''
+      const body = cut > 0 ? text.slice(cut + 2) : text
+      return (
+        <Box flexDirection="column">
+          {title ? (
+            color ? (
+              <Text bold color={color}>
+                {title}
+              </Text>
+            ) : (
+              <Text bold>{title}</Text>
+            )
+          ) : null}
+          <Text>{body}</Text>
+        </Box>
+      )
+    }
+
     const label = (text: string) => (
       <Box width={8} flexShrink={0}>
         <Text bold>{text}</Text>
@@ -612,26 +641,29 @@ export const register: Register = (on, options) => {
         ) : null}
 
         {isOpen ? (
-          <Box flexDirection="column">
+          <Box key="helpbox" flexDirection="column" borderStyle="round" borderDimColor paddingX={1} marginTop={1} gap={1}>
             <Text bold>{t.helpTitle}</Text>
-            <Text>
-              {period
+            {helpItem(
+              period
                 ? t.helpPeriod(billingDay, shortDate(period.start, lang, 'UTC'), shortDate(period.end, lang, 'UTC'))
-                : t.helpPeriodUnset}
-            </Text>
-            <Text>{t.helpWeek}</Text>
-            <Text>{t.helpFive}</Text>
-            {isSubscription ? (
-              <Text color="success">{t.helpHypothetical}</Text>
-            ) : (
-              <Text color="warning">{t.helpReal}</Text>
+                : t.helpPeriodUnset,
             )}
-            <Text>{t.helpTokens}</Text>
-            <Text>{t.helpLast}</Text>
-            <Text>{t.helpPace}</Text>
-            <Text>{t.helpNotices}</Text>
-            {valueRatio !== null ? <Text>{t.helpValue}</Text> : null}
-            {currency === 'EUR' ? <Text dimColor>{t.helpEuro(dec(eurRate, 5, lang))}</Text> : null}
+            {helpItem(t.helpWeek)}
+            {helpItem(t.helpFive)}
+            {isSubscription ? helpItem(t.helpHypothetical, 'success') : helpItem(t.helpReal, 'warning')}
+            {helpItem(t.helpTokens)}
+            {helpItem(t.helpLast)}
+            {helpItem(t.helpPace)}
+            {helpItem(t.helpNotices)}
+            {valueRatio !== null ? helpItem(t.helpValue) : null}
+            {currency === 'EUR' ? helpItem(t.helpEuro(dec(eurRate, 5, lang))) : null}
+            <Text dimColor>
+              {t.helpActive(
+                billingDay >= 1 && billingDay <= 31 ? String(billingDay) : off,
+                currency,
+                planPrice > 0 ? money(planUsd, currency, eurRate, lang) : off,
+              )}
+            </Text>
           </Box>
         ) : null}
         </Box>

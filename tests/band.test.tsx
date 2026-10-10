@@ -29,9 +29,10 @@ const LIMITS = [
 
 test(
   'Bars, session cost in euros and help on terminal and desktop',
-  { options: { billingDay: 29, currency: 'EUR' } },
+  { options: { billingDay: 29, currency: 'EUR', planPrice: 5 } },
   async ($, on) => {
     world(on)
+    on('session.id', () => ({ value: 'this-session' }))
     await $.session.measure({
       context: { window: 200_000 },
       rateLimits: LIMITS,
@@ -43,7 +44,7 @@ test(
       const ui = await $.ui.mount({ ...BAND, surface })
 
       const rows = (await ui.findAll({ type: 'Box' })).filter(r => r.key !== undefined)
-      expect(rows.map(r => r.key)).toEqual(['logo', 'period', 'week', 'session'])
+      expect(rows.map(r => r.key)).toEqual(['logo', 'period', 'week', 'session', 'value'])
       expect((await ui.find({ key: 'logo' }))?.text).toBe('🧾')
 
       expect(
@@ -59,6 +60,10 @@ test(
       await ui.press({ key: 'help' })
       expect(await ui.find({ text: /Costs are hypothetical/ })).toBeDefined()
       expect(await ui.find({ text: /this period runs Sep 29 to Oct 29/ })).toBeDefined()
+      expect(await ui.find({ key: 'helpbox' })).toBeDefined()
+      expect(
+        await ui.find({ text: /^Active settings: language en · billing day 29 · EUR · plan €5\.00 · version 1\.3\.1$/ }),
+      ).toBeDefined()
 
       await ui.press({ key: 'help' })
       expect(await ui.find({ text: /hypothetical/ })).toBeUndefined()
