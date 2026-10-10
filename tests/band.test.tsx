@@ -62,7 +62,7 @@ test(
       expect(await ui.find({ text: /this period runs Sep 29 to Oct 29/ })).toBeDefined()
       expect(await ui.find({ key: 'helpbox' })).toBeDefined()
       expect(
-        await ui.find({ text: /^Active settings: language en · billing day 29 · EUR · plan €5\.00 · version 1\.3\.2$/ }),
+        await ui.find({ text: /^Active settings: language en · billing day 29 · EUR · plan €5\.00 · version 1\.4\.0$/ }),
       ).toBeDefined()
 
       await ui.press({ key: 'help' })

@@ -32,8 +32,10 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.3.2'
+export const VERSION = '1.4.0'
 const PLUGIN = 'quanta-costa'
+// The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
+export const PANE = 'quanta-costa'
 const DEFAULT_EUR_RATE = 0.89238
 
 export type Lang = 'en' | 'de'
@@ -254,6 +256,8 @@ type Texts = {
   helpValue: string
   helpEuro: (rate: string) => string
   helpNotices: string
+  commandDescription: string
+  paneOpened: string
   helpActive: (billingDay: string, currency: string, plan: string) => string
   warnWeek: (percent: string, resets: string, runsOut?: string) => string
   freshWeek: (free: string) => string
@@ -302,6 +306,8 @@ const TEXTS: Record<Lang, Texts> = {
     helpEuro: rate => `Euro: converted at $1 = €${rate} (setting eurRate).`,
     helpNotices:
       'Notices: Quanta Costa tells you once when the week passes 80% and 90%, when a fresh week starts, and at the end of each period how much it was worth.',
+    commandDescription: 'Show Quanta Costa: usage limits, pace and session cost',
+    paneOpened: 'Quanta Costa opened.',
     helpActive: (billingDay, currency, plan) =>
       `Active settings: language en · billing day ${billingDay} · ${currency} · plan ${plan} · version ${VERSION}`,
     warnWeek: (percent, resets, runsOut) =>
@@ -352,6 +358,8 @@ const TEXTS: Record<Lang, Texts> = {
     helpEuro: rate => `Euro: umgerechnet mit 1 $ = ${rate} € (Einstellung eurRate).`,
     helpNotices:
       'Hinweise: Quanta Costa meldet sich je einmal, wenn die Woche 80 % und 90 % erreicht, wenn eine neue Woche startet und am Ende jeder Periode mit ihrem Wert.',
+    commandDescription: 'Quanta Costa anzeigen: Limits, Tempo und Sitzungskosten',
+    paneOpened: 'Quanta Costa geöffnet.',
     helpActive: (billingDay, currency, plan) =>
       `Aktive Einstellungen: Sprache de · Abrechnungstag ${billingDay} · ${currency} · Abo ${plan} · Version ${VERSION}`,
     warnWeek: (percent, resets, runsOut) =>
@@ -502,6 +510,9 @@ export const register: Register = (on, options) => {
         $.ui.invalidate('ui.render')
       }
     }
+    await $.command
+      .register({ name: PANE, description: TEXTS[cfg.lang].commandDescription })
+      .catch(() => undefined)
     await refresh($).catch(() => undefined)
     // Loaded mid-session: "last prompt" starts at zero, not at the whole session.
     await update($, snap, s => {
@@ -567,8 +578,14 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) return next(e)
+  on('command.run', { command: PANE }, async $ => {
+    await $.ui.open({ id: PANE, title: 'Quanta Costa' })
+    return { text: TEXTS[cfg.lang].paneOpened }
+  })
+
+  on('ui.render', { component: ['AbovePrompt', 'Pane'] }, async ($, e, next) => {
+    if (e.component === 'Pane' && e.requestId !== PANE) return next(e)
+    if (e.component === 'AbovePrompt' && e.props.hasSurvey) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const { billingDay, currency, eurRate, planPrice, lang } = cfg
