@@ -30,7 +30,7 @@ const world = (on: On, settingsFile: unknown) => {
     value: { startedAt: 0, context: { window: 200_000 }, rateLimits: LIMITS, cost: { usd: 10 } },
   }))
   on('fs.read', ($, e) => {
-    reads.push(e.path)
+    if (/settings\.json$/.test(e.path)) reads.push(e.path)
     return { value: JSON.stringify(settingsFile) }
   })
   return reads

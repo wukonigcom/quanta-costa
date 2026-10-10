@@ -32,7 +32,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.4.1'
+export const VERSION = '1.5.0'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -201,11 +201,59 @@ type Ledger = Record<string, Record<string, number>>
 const LEDGER = 'ledger'
 const KEEP_PERIODS = 3
 
-// Books this session's cost to its period in the store kept across sessions, and returns
-// what the period's other sessions cost.
+// Claude's config folder: CLAUDE_CONFIG_DIR, else ~/.claude.
+// Never throws: without access to the environment the plugin falls back to its own store.
+const configDir = async ($: EngineInterface): Promise<string | undefined> => {
+  try {
+    const custom = await $.env.get('CLAUDE_CONFIG_DIR')
+    if (custom) return custom
+    const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
+    return home ? `${home}/.claude` : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Claude Code keeps a plugin's store per name it was loaded under (the desktop app's
+// "quanta-costa@inline" next to "quanta-costa@<marketplace>"), which split the value across
+// stores. All sessions share one small file instead; each store is still merged in.
+type Shared = { ledger?: Ledger; notices?: Notices }
+
+const loadShared = async ($: EngineInterface): Promise<Shared> => {
+  const dir = await configDir($)
+  if (!dir) return {}
+  try {
+    const text = await $.fs.read(`${dir}/quanta-costa/ledger.json`)
+    return typeof text === 'string' ? ((JSON.parse(text) as Shared) ?? {}) : {}
+  } catch {
+    return {}
+  }
+}
+
+const saveShared = async ($: EngineInterface, data: Shared) => {
+  const dir = await configDir($)
+  if (!dir) return
+  await $.fs.write(`${dir}/quanta-costa/ledger.json`, JSON.stringify(data, null, 1)).catch(() => undefined)
+}
+
+// Two ledgers as one: per period and session the larger amount (a session's cost only grows).
+export const mergeLedgers = (a: Ledger = {}, b: Ledger = {}): Ledger => {
+  const out: Ledger = {}
+  for (const source of [a, b]) {
+    for (const [period, sessions] of Object.entries(source ?? {})) {
+      const target = (out[period] ??= {})
+      for (const [sid, usd] of Object.entries(sessions ?? {})) target[sid] = Math.max(num(target[sid]), num(usd))
+    }
+  }
+  return out
+}
+
+// Books this session's cost to its period in the shared ledger, and returns what the
+// period's other sessions cost.
 const book = async ($: EngineInterface, usd: number, key: string) => {
   const id = await $.session.id()
-  const ledger = ((await $.store.get(LEDGER)) ?? {}) as Ledger
+  const shared = await loadShared($)
+  const ledger = mergeLedgers(shared.ledger, ((await $.store.get(LEDGER)) ?? {}) as Ledger)
   const period = { ...(ledger[key] ?? {}) }
   period[id] = Math.max(num(period[id]), usd)
   const kept = Object.keys({ ...ledger, [key]: period })
@@ -214,6 +262,7 @@ const book = async ($: EngineInterface, usd: number, key: string) => {
   const next: Ledger = {}
   for (const k of kept) next[k] = k === key ? period : (ledger[k] ?? {})
   await $.store.set(LEDGER, next)
+  await saveShared($, { ...shared, ledger: next })
   return Object.entries(period).reduce((sum, [sid, v]) => (sid === id ? sum : sum + num(v)), 0)
 }
 
@@ -375,6 +424,21 @@ type Notices = { week?: number; level?: number; seenPeriod?: string }
 type NoticeOptions = { lang: Lang; planPrice: number; billingDay: number; currency: string; eurRate: number }
 const NOTICES = 'notices'
 
+// The notices already shown, from the store and the shared file: the later week, its higher level.
+export const mergeNotices = (a: Notices = {}, b: Notices = {}): Notices => {
+  const weekA = num(a.week)
+  const weekB = num(b.week)
+  const later = weekB > weekA ? b : a
+  const sameWeek = weekA > 0 && weekB > 0 && Math.abs(weekA - weekB) < DAY
+  const out: Notices = {}
+  if (later.week !== undefined) out.week = later.week
+  const level = sameWeek ? Math.max(num(a.level), num(b.level)) : num(later.level)
+  if (later.level !== undefined || sameWeek) out.level = level
+  const seen = [a.seenPeriod, b.seenPeriod].filter((v): v is string => typeof v === 'string').sort()
+  if (seen.length > 0) out.seenPeriod = seen[seen.length - 1]
+  return out
+}
+
 // Two readings belong to the same week when their reset times lie within a day of each other.
 export const isSameWeek = (a: number, b: number) => Math.abs(a - b) < DAY
 
@@ -384,7 +448,8 @@ const notify = async ($: EngineInterface, o: NoticeOptions) => {
   const t = TEXTS[o.lang]
   const s = normalize(await read($, snap))
   const now = s.now || (await $.clock.now())
-  const stored = ((await $.store.get(NOTICES)) ?? {}) as Notices
+  const shared = await loadShared($)
+  const stored = mergeNotices(((await $.store.get(NOTICES)) ?? {}) as Notices, shared.notices)
   const next: Notices = { ...stored }
   const toasts: string[] = []
 
@@ -416,7 +481,7 @@ const notify = async ($: EngineInterface, o: NoticeOptions) => {
     const key = periodKey(now, o.billingDay)
     const seen = stored.seenPeriod
     if (seen && seen < key) {
-      const ledger = ((await $.store.get(LEDGER)) ?? {}) as Ledger
+      const ledger = mergeLedgers(shared.ledger, ((await $.store.get(LEDGER)) ?? {}) as Ledger)
       const ended = ledger[seen]
       if (ended) {
         const usd = Object.values(ended).reduce((sum, v) => sum + num(v), 0)
@@ -434,7 +499,10 @@ const notify = async ($: EngineInterface, o: NoticeOptions) => {
     next.seenPeriod = key
   }
 
-  if (JSON.stringify(next) !== JSON.stringify(stored)) await $.store.set(NOTICES, next)
+  if (JSON.stringify(next) !== JSON.stringify(stored)) {
+    await $.store.set(NOTICES, next)
+    await saveShared($, { ...(await loadShared($)), notices: next })
+  }
   for (const text of toasts) $.ui.toast(text, { timeoutMs: 12_000 })
 }
 
@@ -476,9 +544,7 @@ export const isAllDefault = (c: Settings) =>
 // configure` stores the options as "quanta-costa@<marketplace>", so only defaults arrive. In that case
 // look up this plugin's own entry in the settings file, under any of its names. Nothing else is read.
 export const findSavedOptions = async ($: EngineInterface): Promise<Record<string, unknown> | null> => {
-  const configDir = await $.env.get('CLAUDE_CONFIG_DIR')
-  const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
-  const dir = configDir ?? (home ? `${home}/.claude` : undefined)
+  const dir = await configDir($)
   if (!dir) return null
   const text = await $.fs.read(`${dir}/settings.json`)
   if (typeof text !== 'string') return null
