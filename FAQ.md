@@ -230,7 +230,7 @@ No. Shown notices are remembered in the shared file, so each one appears once, i
 Press **h** or click **Help** at the end of the Session row. It explains every number in one line per topic, says whether your costs are real, and ends with the active settings:
 
 ```
-Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.0
+Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.1
 ```
 
 That last line is the quickest way to check which version runs and whether your settings arrived.
@@ -238,6 +238,14 @@ That last line is the quickest way to check which version runs and whether your 
 ### Can I see Quanta Costa on my phone?
 
 Yes. Type `/quanta-costa`. It opens the same view in a pane, and panes show on every surface, including the Claude mobile app when you follow a session there. The band above the prompt itself only exists in the terminal and the desktop app.
+
+**Example:** on your phone, open the Claude app, go to **Code**, pick the session running on your computer and send `/quanta-costa`. The pane opens with Period, Week, Session and Value; tap **Help** for the explanations. You also get the same numbers as one line of text, in case your phone shows no pane:
+
+```
+🧾 Quanta Costa | Period: 1.6 of 4.3 weeks gone · 2.7 wk left · renews in 19 days | Week: 42% used · 58% free · on track (resets Oct 12) | Session: 3.3M tokens · $4.95 · last prompt $0.07 · 85k tokens | Value: $412.30 API value vs $200.00 plan (2.1×)
+```
+
+Your computer has to be on, since the session runs there.
 
 ### Does it fit my theme, dark mode or skin?
 
@@ -352,6 +360,10 @@ claude plugin update quanta-costa@quanta-costa
 ```
 
 Then type `/reload-plugins` in Claude Code, or restart it. The help shows the version that runs.
+
+### On my phone, `/quanta-costa` went to Claude as a normal message.
+
+The mobile app sends it as plain text instead of running the command. Since 1.5.1 Quanta Costa catches exactly that text, opens the pane, answers with the numbers as one line of text and keeps the message from reaching the model. Update, then `/reload-plugins` on your computer (it is not available from the phone).
 
 ### The band disappeared for a moment.
 

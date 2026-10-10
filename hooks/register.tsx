@@ -32,10 +32,12 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.5.0'
+export const VERSION = '1.5.1'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
+// "/quanta-costa" on its own, as a prompt that was not run as a command.
+export const isPaneRequest = (text: string) => /^\s*\/quanta-costa\s*$/i.test(text)
 const DEFAULT_EUR_RATE = 0.89238
 
 export type Lang = 'en' | 'de'
@@ -558,6 +560,62 @@ export const findSavedOptions = async ($: EngineInterface): Promise<Record<strin
   return null
 }
 
+// Everything the view shows, worked out once for the band, the pane and the text summary.
+export const figures = (s: Snapshot, cfg: Settings, now: number) => {
+  const { billingDay, currency, eurRate, planPrice } = cfg
+  const week = pickPeriod(s.limits)
+  const short = s.limits.find(l => l.kind === 'five_hour')
+  const periodUsd = s.othersUsd + (s.usd ?? 0)
+  const planUsd = currency === 'EUR' ? planPrice / eurRate : planPrice
+  return {
+    week,
+    short,
+    isShortTight: short !== undefined && short !== week && short.percentUsed >= 80,
+    isSubscription: s.limits.length > 0,
+    lastUsd: s.usd === null ? null : Math.max(0, s.usd - s.baseUsd),
+    lastTokens: Math.max(0, s.tokens - s.baseTokens),
+    period: billingDay >= 1 && billingDay <= 31 ? billingPeriod(now, billingDay) : null,
+    forecast: week ? pace(week, now) : null,
+    periodUsd,
+    planUsd,
+    valueRatio: planPrice > 0 ? periodUsd / planUsd : null,
+  }
+}
+
+// The view as one line of text, the answer where no pane can be drawn, such as the phone.
+// One line, because Claude Code shows a dropped prompt's reason without line breaks.
+export const summaryText = (s: Snapshot, cfg: Settings, now: number): string => {
+  const { currency, eurRate, lang } = cfg
+  const t = TEXTS[lang]
+  const f = figures(s, cfg, now)
+  const lines = [`${LOGO} Quanta Costa`]
+  if (f.period) {
+    const { daysGone, daysTotal, daysLeft } = f.period
+    lines.push(`${t.period}: ${t.periodLine(weeks(daysGone, lang), weeks(daysTotal, lang), weeks(daysLeft, lang), daysLeft)}`)
+  }
+  if (f.week) {
+    const free = pct(Math.max(0, 100 - Math.round(f.week.percentUsed)), lang)
+    const parts = [`${t.names[f.week.kind] ?? f.week.kind}: ${t.weekLine(pct(f.week.percentUsed, lang), free)}`]
+    if (f.forecast) parts.push(f.forecast.isOnTrack ? t.onTrack : t.runsOut(weekdayTime(f.forecast.runsOutAt, lang)))
+    if (f.week.resetsAt) parts.push(t.resets(shortDate(Date.parse(f.week.resetsAt), lang)))
+    lines.push(parts.join(' '))
+  } else {
+    lines.push(t.noReading)
+  }
+  const cost = money(s.usd, currency, eurRate, lang)
+  const last = t.sessionLast(money(f.lastUsd, currency, eurRate, lang), tokenText(f.lastTokens, lang))
+  lines.push(`${t.session}: ${t.sessionMain(tokenText(s.tokens, lang), cost)} ${last}`)
+  if (f.valueRatio !== null) {
+    const value = t.valueLine(money(f.periodUsd, currency, eurRate, lang), money(f.planUsd, currency, eurRate, lang))
+    lines.push(`${t.value}: ${value} (${dec(f.valueRatio, 1, lang)}×)`)
+  }
+  if (f.isShortTight && f.short) {
+    const freeIn = f.short.resetsAt ? duration(Date.parse(f.short.resetsAt) - now, lang) : undefined
+    lines.push(t.shortWarn(pct(f.short.percentUsed, lang), freeIn))
+  }
+  return lines.join(' | ')
+}
+
 export const register: Register = (on, options) => {
   let cfg = toSettings(options as Record<string, unknown>)
   const noticeOptions = (): NoticeOptions => ({
@@ -595,6 +653,14 @@ export const register: Register = (on, options) => {
 
   // A new prompt starts a new "last prompt" count.
   on('prompt.submit', async ($, e, next) => {
+    // The iPhone app sends "/quanta-costa" as plain text instead of running the command:
+    // keep it from reaching the model, open the pane where one can be drawn, and answer
+    // with the view as text, which shows on every surface.
+    if (isPaneRequest(e.text)) {
+      await $.ui.open({ id: PANE, title: 'Quanta Costa' }).catch(() => undefined)
+      const s = normalize(await read($, snap))
+      return { drop: summaryText(s, cfg, s.now || (await $.clock.now())) }
+    }
     const usage = await $.session.usage()
     await update($, snap, s => ({
       ...normalize(s),
@@ -660,18 +726,8 @@ export const register: Register = (on, options) => {
     const isOpen = await read($, isHelpOpen)
     const now = s.now || (await $.clock.now())
 
-    const week = pickPeriod(s.limits)
-    const short = s.limits.find(l => l.kind === 'five_hour')
-    const isShortTight = short !== undefined && short !== week && short.percentUsed >= 80
-    const isSubscription = s.limits.length > 0
-
-    const lastUsd = s.usd === null ? null : Math.max(0, s.usd - s.baseUsd)
-    const lastTokens = Math.max(0, s.tokens - s.baseTokens)
-    const period = billingDay >= 1 && billingDay <= 31 ? billingPeriod(now, billingDay) : null
-    const forecast = week ? pace(week, now) : null
-    const periodUsd = s.othersUsd + (s.usd ?? 0)
-    const planUsd = currency === 'EUR' ? planPrice / eurRate : planPrice
-    const valueRatio = planPrice > 0 ? periodUsd / planUsd : null
+    const { week, short, isShortTight, isSubscription, lastUsd, lastTokens, period, forecast, periodUsd, planUsd, valueRatio } =
+      figures(s, cfg, now)
 
     const off = lang === 'de' ? 'aus' : 'off'
 
