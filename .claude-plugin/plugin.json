@@ -1,6 +1,6 @@
 {
   "name": "quanta-costa",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Quanta Costa: your Claude subscription period, weekly limit with a pace forecast, session cost and plan value, as bars right above the Claude Code prompt.",
   "author": {
     "name": "Jörg Wukonig"

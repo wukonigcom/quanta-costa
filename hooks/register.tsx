@@ -32,7 +32,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.4.0'
+export const VERSION = '1.4.1'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -609,30 +609,30 @@ export const register: Register = (on, options) => {
 
     const off = lang === 'de' ? 'aus' : 'off'
 
-    // "Title: body" becomes a bold title over its own paragraph.
+    // "Title: body" on one line, the title in bold.
     const helpItem = (text: string, color?: 'success' | 'warning') => {
       const cut = text.indexOf(': ')
-      const title = cut > 0 ? text.slice(0, cut) : ''
-      const body = cut > 0 ? text.slice(cut + 2) : text
-      return (
-        <Box flexDirection="column">
-          {title ? (
-            color ? (
-              <Text bold color={color}>
-                {title}
-              </Text>
-            ) : (
-              <Text bold>{title}</Text>
-            )
-          ) : null}
-          <Text>{body}</Text>
-        </Box>
+      if (cut <= 0) return <Text>{text}</Text>
+      const title = text.slice(0, cut + 1)
+      const body = ` ${text.slice(cut + 2)}`
+      return color ? (
+        <Text>
+          <Text bold color={color}>
+            {title}
+          </Text>
+          {body}
+        </Text>
+      ) : (
+        <Text>
+          <Text bold>{title}</Text>
+          {body}
+        </Text>
       )
     }
 
     // A blank line before each topic, so the help stays easy to read.
     const spaced = (items: (ReturnType<typeof helpItem> | null)[]) =>
-      items.flatMap(item => (item === null ? [] : [<Text> </Text>, item]))
+      items.flatMap(item => (item === null ? [] : [<Text>{' '}</Text>, item]))
 
     const label = (text: string) => (
       <Box width={8} flexShrink={0}>
@@ -732,7 +732,7 @@ export const register: Register = (on, options) => {
               valueRatio !== null ? helpItem(t.helpValue) : null,
               currency === 'EUR' ? helpItem(t.helpEuro(dec(eurRate, 5, lang))) : null,
             ])}
-            <Text> </Text>
+            <Text>{' '}</Text>
             <Text dimColor>
               {t.helpActive(
                 billingDay >= 1 && billingDay <= 31 ? String(billingDay) : off,
