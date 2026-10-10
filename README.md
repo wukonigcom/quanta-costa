@@ -24,7 +24,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 - **Session cost** in tokens and in dollars or euros, plus the cost of your **last prompt**. Updates live after every tool call.
 - **5-hour limit warning**: the short-term window only shows up when it passes 80%, with the time it frees up again.
 - **Notices, each shown once**: when the week passes 80% and 90% (with the pace forecast), when a fresh week starts, and at the end of each billing period a look back at its API value against your plan.
-- **Built-in help**: one click explains every number, including whether the costs are real.
+- **Built-in help**: one click explains every number, including whether the costs are real. More in the [FAQ with examples](FAQ.md).
 - **Also on your phone**: `/quanta-costa` opens the same view in a pane. The band above the prompt exists only in the terminal and the desktop app, a pane shows on every surface, including the Claude mobile app when you follow a session there.
 - **English or German**: switch the language with one setting, numbers and dates follow (`4,42 €`, `12.10.`).
 - **Private by design**: no network calls. All numbers come from Claude Code itself; the Value row keeps a small local ledger of session costs in `~/.claude/quanta-costa/ledger.json`, shared by all your sessions. Besides that file it only reads its own entry in Claude's settings file (see FAQ).
@@ -52,6 +52,8 @@ Answer `y` to add the marketplace, pick the **user** scope with Enter, then set 
 Change them later with `/plugin configure quanta-costa` in Claude Code or `claude plugin configure quanta-costa` in a shell.
 
 ## FAQ
+
+The short answers are here. The **[full FAQ](FAQ.md)** covers every feature with worked examples: Period, Week and pace, the 5-hour limit, Session, Value, notices, the phone pane, language, currency, settings and troubleshooting.
 
 **Are the costs real?**
 On a Claude subscription (Pro or Max): no, they are hypothetical. Quanta Costa shows what the session would cost at API list prices, the same figure `/cost` totals. You do not pay it on top; it only counts against your weekly allowance. You only really pay for extra usage beyond your limit, if you turned it on. On an API key, Claude Code reports no subscription limits, and the help says the costs are real.
