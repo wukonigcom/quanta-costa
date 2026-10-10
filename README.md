@@ -24,6 +24,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 - **Session cost** in tokens and in dollars or euros, plus the cost of your **last prompt**. Updates live after every tool call.
 - **5-hour limit warning**: the short-term window only shows up when it passes 80%, with the time it frees up again.
 - **Built-in help**: one click explains every number, including whether the costs are real.
+- **English or German**: switch the language with one setting, numbers and dates follow (`4,42 €`, `12.10.`).
 - **Private by design**: no network calls. All numbers come from Claude Code itself; the Value row keeps a small local ledger of session costs in the plugin's own store on your machine.
 
 ## Install
@@ -40,6 +41,7 @@ Answer `y` to add the marketplace, pick the **user** scope with Enter, then set 
 
 | Setting | What it does | Default |
 | --- | --- | --- |
+| `language` | `en` (English) or `de` (German): labels, help, number and date formats | `en` |
 | `billingDay` | Day of the month your subscription renews (1 to 31). It is on your Anthropic receipt. `0` hides the Period row. | `0` |
 | `currency` | `USD` or `EUR` | `USD` |
 | `eurRate` | Euros per US dollar, used with `EUR` | `0.89238` (ECB, 2026-10-09) |
@@ -79,7 +81,7 @@ Claude Code 2.1.293 or newer. Quanta Costa uses Claude Code's function-hooks plu
 
 ## Deutsch
 
-Quanta Costa zeigt in Claude Code direkt über dem Prompt, wie viel von deinem Claude-Abo noch frei ist (Woche und Abrechnungsperiode als Balken), ob deine Woche bei diesem Tempo reicht, was die laufende Sitzung in Tokens und Euro kosten würde und ob sich dein Abo lohnt. Mit Abo sind die Kosten theoretisch: Sie zählen nur gegen dein Wochenkontingent. Installation wie oben, für Euro `currency` auf `EUR` stellen, `billingDay` auf deinen Abrechnungstag und `planPrice` auf deinen Abo-Preis.
+Quanta Costa zeigt in Claude Code direkt über dem Prompt, wie viel von deinem Claude-Abo noch frei ist (Woche und Abrechnungsperiode als Balken), ob deine Woche bei diesem Tempo reicht, was die laufende Sitzung in Tokens und Euro kosten würde und ob sich dein Abo lohnt. Mit Abo sind die Kosten theoretisch: Sie zählen nur gegen dein Wochenkontingent. Installation wie oben. Für die deutsche Oberfläche `language` auf `de` stellen, für Euro `currency` auf `EUR`, `billingDay` auf deinen Abrechnungstag und `planPrice` auf deinen Abo-Preis.
 
 ## License
 

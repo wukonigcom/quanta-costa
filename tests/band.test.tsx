@@ -151,3 +151,38 @@ test(
     await ui.unmount()
   },
 )
+
+test(
+  'German: labels, help, numbers and dates switch with the language setting',
+  { options: { language: 'de', billingDay: 29, currency: 'EUR', planPrice: 5 } },
+  async ($, on) => {
+    world(on)
+    mock.store(on, { ledger: { '2026-09-29': { 'earlier-session': 3 } } })
+    on('session.id', () => ({ value: 'this-session' }))
+    await $.session.measure({
+      context: { window: 200_000 },
+      rateLimits: LIMITS,
+      cost: { usd: 10 },
+      changed: ['rateLimits', 'cost'],
+    })
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      expect(await ui.find({ text: /^Periode$/ })).toBeDefined()
+      expect(await ui.find({ text: /^1,4 v\. 4,3 Wochen vorbei · 2,9 W offen · noch 20 Tage$/ })).toBeDefined()
+      expect(await ui.find({ text: /^42 % verbraucht · 58 % frei$/ })).toBeDefined()
+      expect(await ui.find({ text: /^· im Plan$/ })).toBeDefined()
+      expect(await ui.find({ text: /^\(neu ab 12\.10\.\)$/ })).toBeDefined()
+      expect(await ui.find({ text: /8,92 €/ })).toBeDefined()
+      expect(await ui.find({ text: /^11,60 € API-Wert vs\. 5,00 € Abo$/ })).toBeDefined()
+      expect(await ui.find({ text: /^\(2,3×\)$/ })).toBeDefined()
+      expect(await ui.find({ text: /^Kurzzeit-Bremse 85 % voll · frei in 6 h 0 min$/ })).toBeDefined()
+
+      await ui.press({ key: 'help' })
+      expect(await ui.find({ text: /Kosten sind theoretisch/ })).toBeDefined()
+      expect(await ui.find({ text: /aktuell 29\.09\. bis 29\.10\./ })).toBeDefined()
+      await ui.press({ key: 'help' })
+      await ui.unmount()
+    }
+  },
+)
