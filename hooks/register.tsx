@@ -32,7 +32,9 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.3.1'
+export const VERSION = '1.3.2'
+const PLUGIN = 'quanta-costa'
+const DEFAULT_EUR_RATE = 0.89238
 
 export type Lang = 'en' | 'de'
 const LOCALE: Record<Lang, string> = { en: 'en-US', de: 'de-AT' }
@@ -442,24 +444,72 @@ const refresh = async ($: EngineInterface) => {
   }))
 }
 
+type Settings = { billingDay: number; currency: 'USD' | 'EUR'; eurRate: number; planPrice: number; lang: Lang }
+
+const asNumber = (v: unknown): number | undefined => {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v)
+  return undefined
+}
+
+export const toSettings = (o: Record<string, unknown>): Settings => ({
+  billingDay: Math.round(asNumber(o.billingDay) ?? 0),
+  currency: o.currency === 'EUR' ? 'EUR' : 'USD',
+  eurRate: asNumber(o.eurRate) ?? DEFAULT_EUR_RATE,
+  planPrice: asNumber(o.planPrice) ?? 0,
+  lang: o.language === 'de' ? 'de' : 'en',
+})
+
+export const isAllDefault = (c: Settings) =>
+  c.billingDay === 0 && c.currency === 'USD' && c.planPrice === 0 && c.lang === 'en' && c.eurRate === DEFAULT_EUR_RATE
+
+// Claude Code hands a plugin the options stored under the name it loaded the plugin by. The desktop
+// app loads a plugin installed from a local folder as "quanta-costa@inline", while `claude plugin
+// configure` stores the options as "quanta-costa@<marketplace>", so only defaults arrive. In that case
+// look up this plugin's own entry in the settings file, under any of its names. Nothing else is read.
+export const findSavedOptions = async ($: EngineInterface): Promise<Record<string, unknown> | null> => {
+  const configDir = await $.env.get('CLAUDE_CONFIG_DIR')
+  const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
+  const dir = configDir ?? (home ? `${home}/.claude` : undefined)
+  if (!dir) return null
+  const text = await $.fs.read(`${dir}/settings.json`)
+  if (typeof text !== 'string') return null
+  const parsed = JSON.parse(text) as { pluginConfigs?: Record<string, { options?: Record<string, unknown> }> }
+  const configs = parsed.pluginConfigs ?? {}
+  const keys = Object.keys(configs).filter(k => k === PLUGIN || k.startsWith(`${PLUGIN}@`))
+  for (const key of keys) {
+    const found = configs[key]?.options
+    if (found && Object.keys(found).length > 0) return found
+  }
+  return null
+}
+
 export const register: Register = (on, options) => {
-  const billingDay = typeof options.billingDay === 'number' ? Math.round(options.billingDay) : 0
-  const currency = options.currency === 'EUR' ? 'EUR' : 'USD'
-  const eurRate = typeof options.eurRate === 'number' ? options.eurRate : 0.89238
-  const planPrice = typeof options.planPrice === 'number' ? options.planPrice : 0
-  const lang: Lang = options.language === 'de' ? 'de' : 'en'
-  const t = TEXTS[lang]
-  const noticeOptions: NoticeOptions = { lang, planPrice, billingDay, currency, eurRate }
+  let cfg = toSettings(options as Record<string, unknown>)
+  const noticeOptions = (): NoticeOptions => ({
+    lang: cfg.lang,
+    planPrice: cfg.planPrice,
+    billingDay: cfg.billingDay,
+    currency: cfg.currency,
+    eurRate: cfg.eurRate,
+  })
 
   on('session.start', async ($, e, next) => {
+    if (isAllDefault(cfg)) {
+      const saved = await findSavedOptions($).catch(() => null)
+      if (saved) {
+        cfg = toSettings(saved)
+        $.ui.invalidate('ui.render')
+      }
+    }
     await refresh($).catch(() => undefined)
     // Loaded mid-session: "last prompt" starts at zero, not at the whole session.
     await update($, snap, s => {
       const f = normalize(s)
       return f.baseUsd === 0 ? { ...f, baseUsd: f.usd ?? 0 } : f
     })
-    await bookPeriod($, planPrice, billingDay).catch(() => undefined)
-    await notify($, noticeOptions).catch(() => undefined)
+    await bookPeriod($, cfg.planPrice, cfg.billingDay).catch(() => undefined)
+    await notify($, noticeOptions()).catch(() => undefined)
     $.clock.every(60_000, () => {
       void $.clock.now().then(now => update($, snap, s => ({ ...normalize(s), now })))
     })
@@ -507,8 +557,8 @@ export const register: Register = (on, options) => {
       usd: e.cost?.usd ?? normalize(s).usd,
       now,
     }))
-    await bookPeriod($, planPrice, billingDay).catch(() => undefined)
-    await notify($, noticeOptions).catch(() => undefined)
+    await bookPeriod($, cfg.planPrice, cfg.billingDay).catch(() => undefined)
+    await notify($, noticeOptions()).catch(() => undefined)
     return next(e)
   })
 
@@ -521,6 +571,8 @@ export const register: Register = (on, options) => {
     if (e.props.hasSurvey) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
+    const { billingDay, currency, eurRate, planPrice, lang } = cfg
+    const t = TEXTS[lang]
     const s = normalize(await read($, snap))
     const isOpen = await read($, isHelpOpen)
     const now = s.now || (await $.clock.now())
@@ -560,6 +612,10 @@ export const register: Register = (on, options) => {
         </Box>
       )
     }
+
+    // A blank line before each topic, so the help stays easy to read.
+    const spaced = (items: (ReturnType<typeof helpItem> | null)[]) =>
+      items.flatMap(item => (item === null ? [] : [<Text> </Text>, item]))
 
     const label = (text: string) => (
       <Box width={8} flexShrink={0}>
@@ -641,22 +697,25 @@ export const register: Register = (on, options) => {
         ) : null}
 
         {isOpen ? (
-          <Box key="helpbox" flexDirection="column" borderStyle="round" borderDimColor paddingX={1} marginTop={1} gap={1}>
+          <Box key="helpbox" flexDirection="column" borderStyle="round" borderDimColor paddingX={2} paddingY={1} marginTop={1}>
             <Text bold>{t.helpTitle}</Text>
-            {helpItem(
-              period
-                ? t.helpPeriod(billingDay, shortDate(period.start, lang, 'UTC'), shortDate(period.end, lang, 'UTC'))
-                : t.helpPeriodUnset,
-            )}
-            {helpItem(t.helpWeek)}
-            {helpItem(t.helpFive)}
-            {isSubscription ? helpItem(t.helpHypothetical, 'success') : helpItem(t.helpReal, 'warning')}
-            {helpItem(t.helpTokens)}
-            {helpItem(t.helpLast)}
-            {helpItem(t.helpPace)}
-            {helpItem(t.helpNotices)}
-            {valueRatio !== null ? helpItem(t.helpValue) : null}
-            {currency === 'EUR' ? helpItem(t.helpEuro(dec(eurRate, 5, lang))) : null}
+            {spaced([
+              helpItem(
+                period
+                  ? t.helpPeriod(billingDay, shortDate(period.start, lang, 'UTC'), shortDate(period.end, lang, 'UTC'))
+                  : t.helpPeriodUnset,
+              ),
+              helpItem(t.helpWeek),
+              helpItem(t.helpFive),
+              isSubscription ? helpItem(t.helpHypothetical, 'success') : helpItem(t.helpReal, 'warning'),
+              helpItem(t.helpTokens),
+              helpItem(t.helpLast),
+              helpItem(t.helpPace),
+              helpItem(t.helpNotices),
+              valueRatio !== null ? helpItem(t.helpValue) : null,
+              currency === 'EUR' ? helpItem(t.helpEuro(dec(eurRate, 5, lang))) : null,
+            ])}
+            <Text> </Text>
             <Text dimColor>
               {t.helpActive(
                 billingDay >= 1 && billingDay <= 31 ? String(billingDay) : off,

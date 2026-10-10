@@ -26,7 +26,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 - **Notices, each shown once**: when the week passes 80% and 90% (with the pace forecast), when a fresh week starts, and at the end of each billing period a look back at its API value against your plan.
 - **Built-in help**: one click explains every number, including whether the costs are real.
 - **English or German**: switch the language with one setting, numbers and dates follow (`4,42 €`, `12.10.`).
-- **Private by design**: no network calls. All numbers come from Claude Code itself; the Value row keeps a small local ledger of session costs in the plugin's own store on your machine.
+- **Private by design**: no network calls. All numbers come from Claude Code itself; the Value row keeps a small local ledger of session costs in the plugin's own store on your machine. The only file it may read is its own entry in Claude's settings file (see FAQ).
 
 ## Install
 
@@ -64,6 +64,9 @@ It extrapolates your usage so far in the current week: if you keep going at the 
 **How is the plan value calculated?**
 Each session books its API-equivalent cost to the current billing period (or calendar month without `billingDay`) in a small ledger on your machine. The Value row adds up all sessions of the period and divides by `planPrice`. Only sessions where Quanta Costa ran are counted, so the real value is usually higher.
 
+**My settings do not show up (only two rows, dollars instead of euros).**
+Claude Code hands a plugin the options stored under the name it loaded the plugin by. The Claude desktop app loads a plugin installed from a local folder as `quanta-costa@inline`, while `claude plugin configure` stores the options as `quanta-costa@<marketplace>`, so only defaults arrive. Since 1.3.2 Quanta Costa notices this and reads its own entry from `~/.claude/settings.json` (`pluginConfigs`, under any of its names). The last line of the help shows the active settings and the version, so you can check that they arrived.
+
 **Why is there no Period row?**
 Claude Code does not know your billing date. Set `billingDay` once and the row appears.
 
@@ -71,7 +74,7 @@ Claude Code does not know your billing date. Set `billingDay` once and the row a
 Tokens are summed from the moment the plugin loads. The dollar or euro amount always covers the whole session.
 
 **Does it send my data anywhere?**
-No. It reads Claude Code's own usage figures through the plugin API and draws them. The value ledger stays in the plugin's local store. Nothing leaves your machine.
+No. It reads Claude Code's own usage figures through the plugin API and draws them. The value ledger stays in the plugin's local store. If Claude Code hands over no settings, it reads its own `pluginConfigs` entry from Claude's settings file and nothing else. Nothing leaves your machine.
 
 **How is it different from ccusage?**
 [ccusage](https://github.com/ryoppippi/ccusage) analyses Claude Code's log files after the fact, from the command line. Quanta Costa lives inside Claude Code and shows the live numbers while you work.
