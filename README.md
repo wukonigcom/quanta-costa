@@ -23,6 +23,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 - **Billing period bar**: how many weeks of the month you paid for are gone and how many are left.
 - **Session cost** in tokens and in dollars or euros, plus the cost of your **last prompt**. Updates live after every tool call.
 - **5-hour limit warning**: the short-term window only shows up when it passes 80%, with the time it frees up again.
+- **Notices, each shown once**: when the week passes 80% and 90% (with the pace forecast), when a fresh week starts, and at the end of each billing period a look back at its API value against your plan.
 - **Built-in help**: one click explains every number, including whether the costs are real.
 - **English or German**: switch the language with one setting, numbers and dates follow (`4,42 €`, `12.10.`).
 - **Private by design**: no network calls. All numbers come from Claude Code itself; the Value row keeps a small local ledger of session costs in the plugin's own store on your machine.

@@ -250,6 +250,10 @@ type Texts = {
   helpPace: string
   helpValue: string
   helpEuro: (rate: string) => string
+  helpNotices: string
+  warnWeek: (percent: string, resets: string, runsOut?: string) => string
+  freshWeek: (free: string) => string
+  review: (start: string, end: string, value: string, ratio?: string) => string
 }
 
 const TEXTS: Record<Lang, Texts> = {
@@ -292,6 +296,14 @@ const TEXTS: Record<Lang, Texts> = {
     helpValue:
       'Value: the API value of all sessions in this period (those where Quanta Costa ran) against your plan price. Above 1× your plan has paid for itself.',
     helpEuro: rate => `Euro: converted at $1 = €${rate} (setting eurRate).`,
+    helpNotices:
+      'Notices: Quanta Costa tells you once when the week passes 80% and 90%, when a fresh week starts, and at the end of each period how much it was worth.',
+    warnWeek: (percent, resets, runsOut) =>
+      `Quanta Costa: ${percent} of your weekly limit used, it resets ${resets}.` +
+      (runsOut ? ` At this pace it runs out ${runsOut}.` : ''),
+    freshWeek: free => `Quanta Costa: fresh week, your weekly limit has reset (${free} free).`,
+    review: (start, end, value, ratio) =>
+      `Quanta Costa: last period ${start} to ${end}: ${value} API value` + (ratio ? `, ${ratio}× your plan.` : '.'),
   },
   de: {
     names: { seven_day: 'Woche', spend_limit: 'Limit', five_hour: '5 Std.' },
@@ -332,7 +344,82 @@ const TEXTS: Record<Lang, Texts> = {
     helpValue:
       'Wert: der API-Wert aller Sitzungen dieser Periode (in denen Quanta Costa lief) im Vergleich zu deinem Abo-Preis. Über 1× hat sich dein Abo bezahlt gemacht.',
     helpEuro: rate => `Euro: umgerechnet mit 1 $ = ${rate} € (Einstellung eurRate).`,
+    helpNotices:
+      'Hinweise: Quanta Costa meldet sich je einmal, wenn die Woche 80 % und 90 % erreicht, wenn eine neue Woche startet und am Ende jeder Periode mit ihrem Wert.',
+    warnWeek: (percent, resets, runsOut) =>
+      `Quanta Costa: ${percent} deines Wochenlimits verbraucht, neu ab ${resets}.` +
+      (runsOut ? ` Bei diesem Tempo leer ab ${runsOut}.` : ''),
+    freshWeek: free => `Quanta Costa: neue Woche, dein Wochenlimit ist zurückgesetzt (${free} frei).`,
+    review: (start, end, value, ratio) =>
+      `Quanta Costa: letzte Periode ${start} bis ${end}: ${value} API-Wert` + (ratio ? `, ${ratio}× dein Abo.` : '.'),
   },
+}
+
+type Notices = { week?: number; level?: number; seenPeriod?: string }
+type NoticeOptions = { lang: Lang; planPrice: number; billingDay: number; currency: string; eurRate: number }
+const NOTICES = 'notices'
+
+// Two readings belong to the same week when their reset times lie within a day of each other.
+export const isSameWeek = (a: number, b: number) => Math.abs(a - b) < DAY
+
+// Shows each notice once (remembered across sessions): 80% and 90% of the week, a fresh week,
+// and a look back at the period that just ended.
+const notify = async ($: EngineInterface, o: NoticeOptions) => {
+  const t = TEXTS[o.lang]
+  const s = normalize(await read($, snap))
+  const now = s.now || (await $.clock.now())
+  const stored = ((await $.store.get(NOTICES)) ?? {}) as Notices
+  const next: Notices = { ...stored }
+  const toasts: string[] = []
+
+  const week = s.limits.find(l => l.kind === 'seven_day')
+  if (week?.resetsAt) {
+    const resetsAt = Date.parse(week.resetsAt)
+    const known = typeof stored.week === 'number' ? stored.week : null
+    const isKnownWeek = known !== null && isSameWeek(known, resetsAt)
+    if (known !== null && !isKnownWeek && resetsAt > known) {
+      toasts.push(t.freshWeek(pct(Math.max(0, 100 - week.percentUsed), o.lang)))
+    }
+    const level = week.percentUsed >= 90 ? 90 : week.percentUsed >= 80 ? 80 : 0
+    const shownLevel = isKnownWeek ? num(stored.level) : 0
+    if (level > shownLevel) {
+      const forecast = pace(week, now)
+      toasts.push(
+        t.warnWeek(
+          pct(week.percentUsed, o.lang),
+          shortDate(resetsAt, o.lang),
+          forecast && !forecast.isOnTrack ? weekdayTime(forecast.runsOutAt, o.lang) : undefined,
+        ),
+      )
+    }
+    next.week = resetsAt
+    next.level = Math.max(level, shownLevel)
+  }
+
+  if (o.planPrice > 0) {
+    const key = periodKey(now, o.billingDay)
+    const seen = stored.seenPeriod
+    if (seen && seen < key) {
+      const ledger = ((await $.store.get(LEDGER)) ?? {}) as Ledger
+      const ended = ledger[seen]
+      if (ended) {
+        const usd = Object.values(ended).reduce((sum, v) => sum + num(v), 0)
+        const planUsd = o.currency === 'EUR' ? o.planPrice / o.eurRate : o.planPrice
+        toasts.push(
+          t.review(
+            shortDate(Date.parse(`${seen}T00:00:00Z`), o.lang, 'UTC'),
+            shortDate(Date.parse(`${key}T00:00:00Z`), o.lang, 'UTC'),
+            money(usd, o.currency, o.eurRate, o.lang),
+            dec(usd / planUsd, 1, o.lang),
+          ),
+        )
+      }
+    }
+    next.seenPeriod = key
+  }
+
+  if (JSON.stringify(next) !== JSON.stringify(stored)) await $.store.set(NOTICES, next)
+  for (const text of toasts) $.ui.toast(text, { timeoutMs: 12_000 })
 }
 
 const colorFor = (percentUsed: number) =>
@@ -356,6 +443,7 @@ export const register: Register = (on, options) => {
   const planPrice = typeof options.planPrice === 'number' ? options.planPrice : 0
   const lang: Lang = options.language === 'de' ? 'de' : 'en'
   const t = TEXTS[lang]
+  const noticeOptions: NoticeOptions = { lang, planPrice, billingDay, currency, eurRate }
 
   on('session.start', async ($, e, next) => {
     await refresh($).catch(() => undefined)
@@ -365,6 +453,7 @@ export const register: Register = (on, options) => {
       return f.baseUsd === 0 ? { ...f, baseUsd: f.usd ?? 0 } : f
     })
     await bookPeriod($, planPrice, billingDay).catch(() => undefined)
+    await notify($, noticeOptions).catch(() => undefined)
     $.clock.every(60_000, () => {
       void $.clock.now().then(now => update($, snap, s => ({ ...normalize(s), now })))
     })
@@ -413,6 +502,7 @@ export const register: Register = (on, options) => {
       now,
     }))
     await bookPeriod($, planPrice, billingDay).catch(() => undefined)
+    await notify($, noticeOptions).catch(() => undefined)
     return next(e)
   })
 
@@ -539,6 +629,7 @@ export const register: Register = (on, options) => {
             <Text>{t.helpTokens}</Text>
             <Text>{t.helpLast}</Text>
             <Text>{t.helpPace}</Text>
+            <Text>{t.helpNotices}</Text>
             {valueRatio !== null ? <Text>{t.helpValue}</Text> : null}
             {currency === 'EUR' ? <Text dimColor>{t.helpEuro(dec(eurRate, 5, lang))}</Text> : null}
           </Box>
