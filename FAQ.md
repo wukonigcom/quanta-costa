@@ -240,7 +240,7 @@ No. Shown notices are remembered in the shared file, so each one appears once, i
 Press **h** or click **Help** at the end of the Session row. It explains every number in one line per topic, says whether your costs are real, and ends with the active settings:
 
 ```
-Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.3
+Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.4
 ```
 
 That last line is the quickest way to check which version runs and whether your settings arrived.
@@ -338,7 +338,11 @@ No. It makes no network calls. All numbers come from Claude Code itself through 
 
 ### What does it write and read on my disk?
 
-- **Writes** one small file, `~/.claude/quanta-costa/ledger.json`: the cost per session id for the last three periods, and which notices were shown. No prompts, no code, no file names.
+- **Writes** one small file, `~/.claude/quanta-costa/ledger.json`, and a backup copy of it, `ledger.backup.json`, at most every ten minutes: the cost per session id for the last three periods, and which notices were shown. No prompts, no code, no file names.
+
+### My computer crashed. Is the Value total gone?
+
+No. A crash can leave a file that was just being written empty. Since 1.5.4 Quanta Costa keeps a second copy that is written at most every ten minutes, so it has long reached the disk, and it reads whatever of both is intact. You lose at most the last minutes, never the period. A damaged store of Claude Code's own no longer stops the booking either.
 - **Reads** that file, and its own entry in `~/.claude/settings.json` when Claude Code hands over no settings. Nothing else.
 
 ---

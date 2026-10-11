@@ -114,3 +114,77 @@ test('Value gets every run of a resumed session', { options: { billingDay: 29, c
   expect(await ui.find({ text: /^0 tokens · \$20\.00$/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('A broken store (left empty by an unclean shutdown) does not stop the booking', { options: { billingDay: 29, currency: 'USD', planPrice: 200 } }, async ($, on) => {
+  let file = JSON.stringify({ ledger: { '2026-09-29': { other: 100 } } })
+  mock.clock(on, { now: Date.parse('2026-10-09T12:00:00Z') })
+  mock.env(on, { USERPROFILE: 'C:/Users/test' })
+  on('store.get', () => {
+    throw new Error('Unexpected token in JSON at position 0')
+  })
+  on('store.set', () => {
+    throw new Error('store unavailable')
+  })
+  on('fs.read', () => ({ value: file }))
+  on('fs.write', ($, e) => {
+    file = e.text
+    return { value: undefined }
+  })
+  on('session.id', () => ({ value: 'this-session' }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  await $.session.measure({ context: { window: 200_000 }, rateLimits: [], cost: { usd: 30 }, changed: ['cost'] })
+
+  const saved = JSON.parse(file) as { ledger: Record<string, Record<string, number>> }
+  expect(saved.ledger['2026-09-29']).toEqual({ other: 100, 'this-session': 30 })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ text: /^\$130\.00 API value vs \$200\.00 plan$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('A crash that leaves ledger.json as zero bytes loses nothing: the backup copy fills in', { options: { billingDay: 29, currency: 'USD', planPrice: 200 } }, async ($, on) => {
+  const files: Record<string, string> = {
+    'ledger.json': '\u0000'.repeat(1800),
+    'ledger.backup.json': JSON.stringify({ ledger: { '2026-09-29': { other: 100, 'this-session': 30 } }, runs: { 'this-session': 30 } }),
+  }
+  const name = (path: string) => path.replace(/^.*[\\/]/, '')
+  mock.clock(on, { now: Date.parse('2026-10-09T12:00:00Z') })
+  mock.env(on, { USERPROFILE: 'C:/Users/test' })
+  mock.store(on)
+  on('fs.read', ($, e) => ({ value: files[name(e.path)] ?? '' }))
+  on('fs.write', ($, e) => {
+    files[name(e.path)] = e.text
+    return { value: undefined }
+  })
+  on('session.id', () => ({ value: 'this-session' }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  await $.session.measure({ context: { window: 200_000 }, rateLimits: [], cost: { usd: 35 }, changed: ['cost'] })
+
+  const saved = JSON.parse(files['ledger.json'] ?? '{}') as { ledger: Record<string, Record<string, number>> }
+  expect(saved.ledger['2026-09-29']).toEqual({ other: 100, 'this-session': 35 })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ text: /^\$135\.00 API value vs \$200\.00 plan$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('The backup copy is written at most every ten minutes, so it is never the file just written', { options: { billingDay: 29, currency: 'USD', planPrice: 200 } }, async ($, on) => {
+  const writes: string[] = []
+  const clock = mock.clock(on, { now: Date.parse('2026-10-09T12:00:00Z') })
+  mock.env(on, { USERPROFILE: 'C:/Users/test' })
+  mock.store(on)
+  on('fs.read', () => ({ value: '' }))
+  on('fs.write', ($, e) => {
+    writes.push(e.path.replace(/^.*[\\/]/, ''))
+    return { value: undefined }
+  })
+  on('session.id', () => ({ value: 'this-session' }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  const reading = (usd: number) =>
+    $.session.measure({ context: { window: 200_000 }, rateLimits: [], cost: { usd }, changed: ['cost'] })
+
+  await reading(1)
+  await reading(2)
+  await clock.advance(11 * 60_000)
+  await reading(3)
+  expect(writes.filter(w => w === 'ledger.backup.json')).toHaveLength(2)
+  expect(writes.filter(w => w === 'ledger.json').length).toBeGreaterThanOrEqual(3)
+})

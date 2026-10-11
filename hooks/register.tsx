@@ -36,7 +36,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.5.3'
+export const VERSION = '1.5.4'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -230,21 +230,48 @@ const configDir = async ($: EngineInterface): Promise<string | undefined> => {
 // stores. All sessions share one small file instead; each store is still merged in.
 type Shared = { ledger?: Ledger; notices?: Notices; runs?: Runs }
 
+// Two copies: ledger.json with every booking, ledger.backup.json at most every ten minutes. A crash
+// can leave a file just written as zero bytes; the older copy has long reached the disk by then, and
+// loading merges whatever of both is readable, so at most the last minutes are lost, never the period.
+const SHARED_FILE = 'ledger.json'
+const BACKUP_FILE = 'ledger.backup.json'
+const BACKUP_EVERY = 10 * 60_000
+let backedUpAt = 0
+
+const readShared = async ($: EngineInterface, path: string): Promise<Shared | null> => {
+  try {
+    const text = await $.fs.read(path)
+    if (typeof text !== 'string') return null
+    const data = JSON.parse(text) as unknown
+    return data !== null && typeof data === 'object' ? (data as Shared) : null
+  } catch {
+    return null
+  }
+}
+
 const loadShared = async ($: EngineInterface): Promise<Shared> => {
   const dir = await configDir($)
   if (!dir) return {}
-  try {
-    const text = await $.fs.read(`${dir}/quanta-costa/ledger.json`)
-    return typeof text === 'string' ? ((JSON.parse(text) as Shared) ?? {}) : {}
-  } catch {
-    return {}
+  const main = await readShared($, `${dir}/quanta-costa/${SHARED_FILE}`)
+  const backup = await readShared($, `${dir}/quanta-costa/${BACKUP_FILE}`)
+  if (!main && !backup) return {}
+  return {
+    ledger: mergeLedgers(main?.ledger, backup?.ledger),
+    notices: mergeNotices(main?.notices ?? {}, backup?.notices ?? {}),
+    // The last readings belong with the ledger they were booked into: the newer copy's.
+    runs: main?.runs ?? backup?.runs,
   }
 }
 
 const saveShared = async ($: EngineInterface, data: Shared) => {
   const dir = await configDir($)
   if (!dir) return
-  await $.fs.write(`${dir}/quanta-costa/ledger.json`, JSON.stringify(data, null, 1)).catch(() => undefined)
+  const text = JSON.stringify(data, null, 1)
+  await $.fs.write(`${dir}/quanta-costa/${SHARED_FILE}`, text).catch(() => undefined)
+  const now = await $.clock.now()
+  if (now - backedUpAt < BACKUP_EVERY) return
+  backedUpAt = now
+  await $.fs.write(`${dir}/quanta-costa/${BACKUP_FILE}`, text).catch(() => undefined)
 }
 
 // The last cost reading booked per session. Claude Code counts a resumed session from zero
@@ -257,6 +284,24 @@ const RUNS = 'runs'
 // Without a last reading (booked by a version before 1.5.2) the larger amount counts, as before.
 export const addReading = (booked: number, last: number | undefined, reading: number) =>
   last === undefined ? Math.max(booked, reading) : reading >= last ? booked + (reading - last) : booked + reading
+
+// The store is only a fallback for the shared file. An unclean shutdown can leave it unreadable
+// (zero bytes), which must never stop the booking: a broken store reads as empty, a failed write is skipped.
+const storeGet = async ($: EngineInterface, key: string): Promise<unknown> => {
+  try {
+    return await $.store.get(key)
+  } catch {
+    return undefined
+  }
+}
+
+const storeSet = async ($: EngineInterface, key: string, value: unknown) => {
+  try {
+    await $.store.set(key, value)
+  } catch {
+    // the shared file still has it
+  }
+}
 
 // Two ledgers as one: per period and session the larger amount (a session's cost only grows).
 export const mergeLedgers = (a: Ledger = {}, b: Ledger = {}): Ledger => {
@@ -275,8 +320,8 @@ export const mergeLedgers = (a: Ledger = {}, b: Ledger = {}): Ledger => {
 const book = async ($: EngineInterface, usd: number | null, key: string) => {
   const id = await $.session.id()
   const shared = await loadShared($)
-  const ledger = mergeLedgers(shared.ledger, ((await $.store.get(LEDGER)) ?? {}) as Ledger)
-  const runs: Runs = { ...(((await $.store.get(RUNS)) ?? {}) as Runs), ...(shared.runs ?? {}) }
+  const ledger = mergeLedgers(shared.ledger, ((await storeGet($, LEDGER)) ?? {}) as Ledger)
+  const runs: Runs = { ...(((await storeGet($, RUNS)) ?? {}) as Runs), ...(shared.runs ?? {}) }
   const period = { ...(ledger[key] ?? {}) }
   if (usd !== null) {
     const last = runs[id]
@@ -292,8 +337,8 @@ const book = async ($: EngineInterface, usd: number | null, key: string) => {
     next[k] = k === key ? period : (ledger[k] ?? {})
     for (const sid of Object.keys(next[k] ?? {})) if (typeof runs[sid] === 'number') keptRuns[sid] = runs[sid]
   }
-  await $.store.set(LEDGER, next)
-  await $.store.set(RUNS, keptRuns)
+  await storeSet($, LEDGER, next)
+  await storeSet($, RUNS, keptRuns)
   await saveShared($, { ...shared, ledger: next, runs: keptRuns })
   const last = runs[id]
   return {
@@ -483,7 +528,7 @@ const notify = async ($: EngineInterface, o: NoticeOptions) => {
   const s = normalize(await read($, snap))
   const now = s.now || (await $.clock.now())
   const shared = await loadShared($)
-  const stored = mergeNotices(((await $.store.get(NOTICES)) ?? {}) as Notices, shared.notices)
+  const stored = mergeNotices(((await storeGet($, NOTICES)) ?? {}) as Notices, shared.notices)
   const next: Notices = { ...stored }
   const toasts: string[] = []
 
@@ -515,7 +560,7 @@ const notify = async ($: EngineInterface, o: NoticeOptions) => {
     const key = periodKey(now, o.billingDay)
     const seen = stored.seenPeriod
     if (seen && seen < key) {
-      const ledger = mergeLedgers(shared.ledger, ((await $.store.get(LEDGER)) ?? {}) as Ledger)
+      const ledger = mergeLedgers(shared.ledger, ((await storeGet($, LEDGER)) ?? {}) as Ledger)
       const ended = ledger[seen]
       if (ended) {
         const usd = Object.values(ended).reduce((sum, v) => sum + num(v), 0)
@@ -534,7 +579,7 @@ const notify = async ($: EngineInterface, o: NoticeOptions) => {
   }
 
   if (JSON.stringify(next) !== JSON.stringify(stored)) {
-    await $.store.set(NOTICES, next)
+    await storeSet($, NOTICES, next)
     await saveShared($, { ...(await loadShared($)), notices: next })
   }
   for (const text of toasts) $.ui.toast(text, { timeoutMs: 12_000 })
