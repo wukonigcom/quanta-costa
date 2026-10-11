@@ -106,3 +106,21 @@ test('Where no pane can be drawn, the text answer still comes', async ($, on) =>
   const asked = await $.prompt.submit({ text: '/QUANTA-COSTA', wait: false, origin: { kind: 'bridge' } })
   expect('drop' in asked ? asked.drop : asked).toMatch(/^🧾 Quanta Costa \| Week: no reading yet/)
 })
+
+test('/quanta-costa as a command opens the pane and answers with the view as text', async ($, on) => {
+  const opened: string[] = []
+  on('ui.open', ($, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true as const } }
+  })
+  mock.clock(on, { now: Date.parse('2026-10-10T10:00:00Z') })
+  mock.store(on)
+  const { text } = await $.command.run({
+    command: 'quanta-costa',
+    args: '',
+    origin: { kind: 'bridge' },
+    presentation: { isFullscreen: false, columns: 44 },
+  })
+  expect(opened).toEqual(['quanta-costa'])
+  expect(text).toMatch(/^🧾 Quanta Costa \| Week: no reading yet.* \| Session: 0 tokens/)
+})

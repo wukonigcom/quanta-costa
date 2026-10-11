@@ -308,7 +308,6 @@ type Texts = {
   helpEuro: (rate: string) => string
   helpNotices: string
   commandDescription: string
-  paneOpened: string
   helpActive: (billingDay: string, currency: string, plan: string) => string
   warnWeek: (percent: string, resets: string, runsOut?: string) => string
   freshWeek: (free: string) => string
@@ -358,7 +357,6 @@ const TEXTS: Record<Lang, Texts> = {
     helpNotices:
       'Notices: Quanta Costa tells you once when the week passes 80% and 90%, when a fresh week starts, and at the end of each period how much it was worth.',
     commandDescription: 'Show Quanta Costa: usage limits, pace and session cost',
-    paneOpened: 'Quanta Costa opened.',
     helpActive: (billingDay, currency, plan) =>
       `Active settings: language en · billing day ${billingDay} · ${currency} · plan ${plan} · version ${VERSION}`,
     warnWeek: (percent, resets, runsOut) =>
@@ -410,7 +408,6 @@ const TEXTS: Record<Lang, Texts> = {
     helpNotices:
       'Hinweise: Quanta Costa meldet sich je einmal, wenn die Woche 80 % und 90 % erreicht, wenn eine neue Woche startet und am Ende jeder Periode mit ihrem Wert.',
     commandDescription: 'Quanta Costa anzeigen: Limits, Tempo und Sitzungskosten',
-    paneOpened: 'Quanta Costa geöffnet.',
     helpActive: (billingDay, currency, plan) =>
       `Aktive Einstellungen: Sprache de · Abrechnungstag ${billingDay} · ${currency} · Abo ${plan} · Version ${VERSION}`,
     warnWeek: (percent, resets, runsOut) =>
@@ -616,6 +613,14 @@ export const summaryText = (s: Snapshot, cfg: Settings, now: number): string => 
   return lines.join(' | ')
 }
 
+// /quanta-costa: opens the pane where one can be drawn and answers with the view as text,
+// which every surface shows, the phone included.
+const showView = async ($: EngineInterface, cfg: Settings) => {
+  await $.ui.open({ id: PANE, title: 'Quanta Costa' }).catch(() => undefined)
+  const s = normalize(await read($, snap))
+  return summaryText(s, cfg, s.now || (await $.clock.now()))
+}
+
 export const register: Register = (on, options) => {
   let cfg = toSettings(options as Record<string, unknown>)
   const noticeOptions = (): NoticeOptions => ({
@@ -656,11 +661,7 @@ export const register: Register = (on, options) => {
     // The iPhone app sends "/quanta-costa" as plain text instead of running the command:
     // keep it from reaching the model, open the pane where one can be drawn, and answer
     // with the view as text, which shows on every surface.
-    if (isPaneRequest(e.text)) {
-      await $.ui.open({ id: PANE, title: 'Quanta Costa' }).catch(() => undefined)
-      const s = normalize(await read($, snap))
-      return { drop: summaryText(s, cfg, s.now || (await $.clock.now())) }
-    }
+    if (isPaneRequest(e.text)) return { drop: await showView($, cfg) }
     const usage = await $.session.usage()
     await update($, snap, s => ({
       ...normalize(s),
@@ -710,10 +711,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: PANE }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Quanta Costa' })
-    return { text: TEXTS[cfg.lang].paneOpened }
-  })
+  on('command.run', { command: PANE }, async $ => ({ text: await showView($, cfg) }))
 
   on('ui.render', { component: ['AbovePrompt', 'Pane'] }, async ($, e, next) => {
     if (e.component === 'Pane' && e.requestId !== PANE) return next(e)
