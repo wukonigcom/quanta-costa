@@ -240,22 +240,22 @@ No. Shown notices are remembered in the shared file, so each one appears once, i
 Press **h** or click **Help** at the end of the Session row. It explains every number in one line per topic, says whether your costs are real, and ends with the active settings:
 
 ```
-Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.2
+Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.3
 ```
 
 That last line is the quickest way to check which version runs and whether your settings arrived.
 
 ### Can I see Quanta Costa on my phone?
 
-Yes. Type `/quanta-costa`. It opens the same view in a pane, and panes show on every surface, including the Claude mobile app when you follow a session there. The band above the prompt itself only exists in the terminal and the desktop app.
+Yes, as one line of text. The Claude mobile app shows no band and no pane, and it sends `/quanta-costa` as a plain message. Quanta Costa adds the numbers to that message, and Claude answers with them.
 
-**Example:** on your phone, open the Claude app, go to **Code**, pick the session running on your computer and send `/quanta-costa`. The pane opens with Period, Week, Session and Value; tap **Help** for the explanations. You also get the same numbers as one line of text, in case your phone shows no pane:
+**Example:** on your phone, open the Claude app, go to **Code**, pick the session running on your computer and send `/quanta-costa`. Claude answers:
 
 ```
 🧾 Quanta Costa | Period: 1.6 of 4.3 weeks gone · 2.7 wk left · renews in 19 days | Week: 42% used · 58% free · on track (resets Oct 12) | Session: 3.3M tokens · $4.95 · last prompt $0.07 · 85k tokens | Value: $412.30 API value vs $200.00 plan (2.1×)
 ```
 
-Your computer has to be on, since the session runs there.
+That answer is a short normal reply, so it counts toward your usage like any other. Your computer has to be on, since the session runs there. In the terminal and the desktop app, `/quanta-costa` opens the view in a pane and prints the same line, without asking Claude.
 
 ### Does it fit my theme, dark mode or skin?
 
@@ -373,7 +373,7 @@ Then start a new session. In the Claude desktop app, quit it completely from the
 
 ### On my phone, `/quanta-costa` went to Claude as a normal message.
 
-The mobile app sends it as plain text instead of running the command. Since 1.5.1 Quanta Costa catches exactly that text, opens the pane, answers with the numbers as one line of text and keeps the message from reaching the model. Update, then `/reload-plugins` on your computer (it is not available from the phone).
+That is how it works on the phone: the mobile app sends it as plain text, and Claude answers with the numbers, which Quanta Costa hands it along with the message. If Claude answers something else, your computer still runs a version before 1.5.3: update, then restart Claude on your computer (the desktop app: quit it completely and open it again).
 
 ### The band disappeared for a moment.
 

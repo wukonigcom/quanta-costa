@@ -25,7 +25,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 - **5-hour limit warning**: the short-term window only shows up when it passes 80%, with the time it frees up again.
 - **Notices, each shown once**: when the week passes 80% and 90% (with the pace forecast), when a fresh week starts, and at the end of each billing period a look back at its API value against your plan.
 - **Built-in help**: press `h` or click Help, and it explains every number, including whether the costs are real. Its last line shows the active settings and the version. More in the [FAQ with examples](FAQ.md).
-- **Also on your phone**: `/quanta-costa` opens the same view in a pane and answers with the numbers as one line of text. The band above the prompt exists only in the terminal and the desktop app; the text answer shows everywhere, including the Claude mobile app when you follow a session there, even when the app sends the command as plain text.
+- **Also on your phone**: send `/quanta-costa` in a session you follow in the Claude mobile app, and Claude answers with the numbers in one line. The mobile app shows no band and no pane, so Quanta Costa hands Claude the numbers to reply with. In the terminal and the desktop app, `/quanta-costa` opens the view in a pane and prints the same line.
 - **English or German**: switch the language with one setting, numbers and dates follow (`4,42 €`, `12.10.`).
 - **Private by design**: no network calls. All numbers come from Claude Code itself; the Value row keeps a small local ledger of session costs in `~/.claude/quanta-costa/ledger.json`, shared by all your sessions. Besides that file it only reads its own entry in Claude's settings file (see FAQ).
 

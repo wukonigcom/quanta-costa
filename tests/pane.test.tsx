@@ -61,19 +61,15 @@ test('Another plugin\'s pane is left alone', async ($, on) => {
 })
 
 test(
-  '"/quanta-costa" sent as text (the iPhone app) opens the pane, answers with the view as text, never reaches the model',
+  '"/quanta-costa" sent as text (the iPhone app): Claude gets the numbers and answers with them',
   { options: { billingDay: 29, currency: 'EUR', planPrice: 180 } },
   async ($, on) => {
-    const opened: string[] = []
-    on('ui.open', ($, e) => {
-      opened.push(e.id)
-      return { value: { isPlaced: true as const } }
-    })
     mock.clock(on, { now: Date.parse('2026-10-10T10:00:00Z') })
     mock.store(on)
     on('session.id', () => ({ value: 'this-session' }))
     on('session.measure', ($, e) => ({ changed: e.changed }))
-    on('prompt.submit', ($, e) => ({ text: e.text }))
+    on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [], cost: { usd: 4.95 } } }))
+    on('prompt.submit', ($, e) => ({ text: e.text, context: e.context }))
     await $.session.measure({
       context: { window: 200_000 },
       rateLimits: [{ kind: 'seven_day', percentUsed: 42, resetsAt: '2026-10-12T10:00:00Z' }],
@@ -82,30 +78,19 @@ test(
     })
 
     const asked = await $.prompt.submit({ text: ' /quanta-costa ', wait: false, origin: { kind: 'bridge' } })
-    expect(opened).toEqual(['quanta-costa'])
-    expect('drop' in asked ? asked.drop : asked).toBe(
-      [
-        '🧾 Quanta Costa',
-        'Period: 1.6 of 4.3 weeks gone · 2.7 wk left · renews in 19 days',
-        'Week: 42% used · 58% free · on track (resets Oct 12)',
-        'Session: 0 tokens · €4.42 · last prompt €4.42 · 0 tokens',
-        'Value: €4.42 API value vs €180.00 plan (0.0×)',
-      ].join(' | '),
+    expect('text' in asked ? asked.text : asked).toBe(' /quanta-costa ')
+    const context = 'context' in asked ? (asked.context ?? []) : []
+    expect(context).toHaveLength(1)
+    expect(context[0]).toMatch(/^The person typed \/quanta-costa, most likely on their phone/)
+    expect(context[0]).toMatch(
+      /\n🧾 Quanta Costa \| Period: 1\.6 of 4\.3 weeks gone · 2\.7 wk left · renews in 19 days \| Week: 42% used · 58% free · on track \(resets Oct 12\) \| Session: 0 tokens · €4\.42 · last prompt €4\.42 · 0 tokens \| Value: €4\.42 API value vs €180\.00 plan \(0\.0×\)$/,
     )
 
+    // Any other prompt goes on untouched.
     const other = await $.prompt.submit({ text: 'what does /quanta-costa show?', wait: false, origin: { kind: 'bridge' } })
     expect(other).toEqual({ text: 'what does /quanta-costa show?' })
-    expect(opened).toEqual(['quanta-costa'])
   },
 )
-
-test('Where no pane can be drawn, the text answer still comes', async ($, on) => {
-  on('ui.open', () => ({ deny: 'no panes here' }))
-  mock.clock(on, { now: Date.parse('2026-10-10T10:00:00Z') })
-  mock.store(on)
-  const asked = await $.prompt.submit({ text: '/QUANTA-COSTA', wait: false, origin: { kind: 'bridge' } })
-  expect('drop' in asked ? asked.drop : asked).toMatch(/^🧾 Quanta Costa \| Week: no reading yet/)
-})
 
 test('/quanta-costa as a command opens the pane and answers with the view as text', async ($, on) => {
   const opened: string[] = []

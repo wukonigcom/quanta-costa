@@ -36,12 +36,17 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.5.2'
+export const VERSION = '1.5.3'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
 // "/quanta-costa" on its own, as a prompt that was not run as a command.
 export const isPaneRequest = (text: string) => /^\s*\/quanta-costa\s*$/i.test(text)
+// What Claude reads beside such a prompt, so that its reply carries the numbers.
+export const phoneReply = (line: string) =>
+  'The person typed /quanta-costa, most likely on their phone, where the Quanta Costa plugin ' +
+  'cannot show its band or pane. Reply with exactly this line and nothing else:\n' +
+  line
 const DEFAULT_EUR_RATE = 0.89238
 
 export type Lang = 'en' | 'de'
@@ -689,10 +694,15 @@ export const register: Register = (on, options) => {
 
   // A new prompt starts a new "last prompt" count.
   on('prompt.submit', async ($, e, next) => {
-    // The iPhone app sends "/quanta-costa" as plain text instead of running the command:
-    // keep it from reaching the model, open the pane where one can be drawn, and answer
-    // with the view as text, which shows on every surface.
-    if (isPaneRequest(e.text)) return { drop: await showView($, cfg) }
+    // The Claude mobile app sends "/quanta-costa" as plain text instead of running the command,
+    // and draws no pane, toast or dropped prompt's reason. What it does show is Claude's reply:
+    // so the numbers go along as context, and Claude answers with them.
+    let event = e
+    if (isPaneRequest(e.text)) {
+      const s = normalize(await read($, snap))
+      const line = summaryText(s, cfg, s.now || (await $.clock.now()))
+      event = { ...e, context: [...(e.context ?? []), phoneReply(line)] }
+    }
     const usage = await $.session.usage()
     await update($, snap, s => ({
       ...normalize(s),
@@ -700,7 +710,7 @@ export const register: Register = (on, options) => {
       baseUsd: usage.cost?.usd ?? normalize(s).usd ?? 0,
       baseTokens: normalize(s).tokens,
     }))
-    return next(e)
+    return next(event)
   })
 
   // Refresh the cost after every tool call so the number moves live.
