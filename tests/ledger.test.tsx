@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { mergeLedgers, mergeNotices } from '../hooks/register'
+import { addReading, mergeLedgers, mergeNotices } from '../hooks/register'
 
 const BAND = {
   plugin: 'quanta-costa',
@@ -63,4 +63,54 @@ test('Merging notices keeps the later week and, within one week, the higher leve
   })
   expect(mergeNotices({ week: 10 * day, level: 90 }, { week: 17 * day, level: 0 })).toEqual({ week: 17 * day, level: 0 })
   expect(mergeNotices({ seenPeriod: '2026-08-29' }, { seenPeriod: '2026-09-29' }).seenPeriod).toBe('2026-09-29')
+})
+
+test('A resumed session adds each run: Claude Code counts it from zero again', () => {
+  // Monday: the first reading of a new session.
+  let booked = addReading(0, undefined, 30)
+  expect(booked).toBe(30)
+  // Tuesday: resumed, Claude Code starts at zero, then $20 of work.
+  booked = addReading(booked, 30, 0)
+  booked = addReading(booked, 0, 20)
+  expect(booked).toBe(50)
+  // Wednesday: resumed again, $40 of work.
+  booked = addReading(booked, 20, 40 - 40)
+  booked = addReading(booked, 0, 40)
+  expect(booked).toBe(90)
+  // The same reading twice adds nothing.
+  expect(addReading(90, 40, 40)).toBe(90)
+  // A new period gets only the work done in it.
+  expect(addReading(0, 30, 45)).toBe(15)
+  // Booked by an older version without a last reading: the larger amount, as before.
+  expect(addReading(33, undefined, 6)).toBe(33)
+})
+
+test('Value gets every run of a resumed session', { options: { billingDay: 29, currency: 'USD', planPrice: 200 } }, async ($, on) => {
+  let file = JSON.stringify({ ledger: { '2026-09-29': { other: 100 } } })
+  mock.clock(on, { now: Date.parse('2026-10-09T12:00:00Z') })
+  mock.env(on, { USERPROFILE: 'C:/Users/test' })
+  mock.store(on)
+  on('fs.read', () => ({ value: file }))
+  on('fs.write', ($, e) => {
+    file = e.text
+    return { value: undefined }
+  })
+  on('session.id', () => ({ value: 'this-session' }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  const reading = (usd: number) =>
+    $.session.measure({ context: { window: 200_000 }, rateLimits: [], cost: { usd }, changed: ['cost'] })
+
+  await reading(30) // Monday
+  await reading(0) // Tuesday, resumed
+  await reading(20)
+
+  const saved = JSON.parse(file) as { ledger: Record<string, Record<string, number>>; runs: Record<string, number> }
+  expect(saved.ledger['2026-09-29']).toEqual({ other: 100, 'this-session': 50 })
+  expect(saved.runs).toEqual({ 'this-session': 20 })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // $100 + $50, while the Session row shows the current run's $20.
+  expect(await ui.find({ text: /^\$150\.00 API value vs \$200\.00 plan$/ })).toBeDefined()
+  expect(await ui.find({ text: /^0 tokens · \$20\.00$/ })).toBeDefined()
+  await ui.unmount()
 })

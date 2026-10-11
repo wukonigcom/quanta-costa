@@ -7,6 +7,9 @@ export type Snapshot = {
   tokens: number
   baseTokens: number
   othersUsd: number
+  // This session's amount booked to the period, and the cost reading it was booked at.
+  ownUsd: number
+  ownReading: number | null
   now: number
 }
 

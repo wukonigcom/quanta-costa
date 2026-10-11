@@ -10,6 +10,8 @@ const EMPTY: Snapshot = {
   tokens: 0,
   baseTokens: 0,
   othersUsd: 0,
+  ownUsd: 0,
+  ownReading: null,
   now: 0,
 }
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
@@ -23,6 +25,8 @@ export const normalize = (s: Partial<Snapshot> | null | undefined): Snapshot => 
   tokens: num(s?.tokens),
   baseTokens: num(s?.baseTokens),
   othersUsd: num(s?.othersUsd),
+  ownUsd: num(s?.ownUsd),
+  ownReading: typeof s?.ownReading === 'number' && Number.isFinite(s.ownReading) ? s.ownReading : null,
   now: num(s?.now),
 })
 
@@ -32,7 +36,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.5.1'
+export const VERSION = '1.5.2'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -219,7 +223,7 @@ const configDir = async ($: EngineInterface): Promise<string | undefined> => {
 // Claude Code keeps a plugin's store per name it was loaded under (the desktop app's
 // "quanta-costa@inline" next to "quanta-costa@<marketplace>"), which split the value across
 // stores. All sessions share one small file instead; each store is still merged in.
-type Shared = { ledger?: Ledger; notices?: Notices }
+type Shared = { ledger?: Ledger; notices?: Notices; runs?: Runs }
 
 const loadShared = async ($: EngineInterface): Promise<Shared> => {
   const dir = await configDir($)
@@ -238,6 +242,17 @@ const saveShared = async ($: EngineInterface, data: Shared) => {
   await $.fs.write(`${dir}/quanta-costa/ledger.json`, JSON.stringify(data, null, 1)).catch(() => undefined)
 }
 
+// The last cost reading booked per session. Claude Code counts a resumed session from zero
+// again, so the readings alone would lose every run but the largest.
+type Runs = Record<string, number>
+const RUNS = 'runs'
+
+// A session's booked amount after a new reading: what it added since the last reading, or its
+// whole reading when that is lower than the last (a resumed session, counted from zero again).
+// Without a last reading (booked by a version before 1.5.2) the larger amount counts, as before.
+export const addReading = (booked: number, last: number | undefined, reading: number) =>
+  last === undefined ? Math.max(booked, reading) : reading >= last ? booked + (reading - last) : booked + reading
+
 // Two ledgers as one: per period and session the larger amount (a session's cost only grows).
 export const mergeLedgers = (a: Ledger = {}, b: Ledger = {}): Ledger => {
   const out: Ledger = {}
@@ -250,22 +265,37 @@ export const mergeLedgers = (a: Ledger = {}, b: Ledger = {}): Ledger => {
   return out
 }
 
-// Books this session's cost to its period in the shared ledger, and returns what the
-// period's other sessions cost.
-const book = async ($: EngineInterface, usd: number, key: string) => {
+// Books what this session added since its last reading to the current period in the shared
+// ledger, and returns what the period's other sessions cost. Without a reading nothing is booked.
+const book = async ($: EngineInterface, usd: number | null, key: string) => {
   const id = await $.session.id()
   const shared = await loadShared($)
   const ledger = mergeLedgers(shared.ledger, ((await $.store.get(LEDGER)) ?? {}) as Ledger)
+  const runs: Runs = { ...(((await $.store.get(RUNS)) ?? {}) as Runs), ...(shared.runs ?? {}) }
   const period = { ...(ledger[key] ?? {}) }
-  period[id] = Math.max(num(period[id]), usd)
+  if (usd !== null) {
+    const last = runs[id]
+    period[id] = addReading(num(period[id]), typeof last === 'number' ? last : undefined, usd)
+    runs[id] = usd
+  }
   const kept = Object.keys({ ...ledger, [key]: period })
     .sort()
     .slice(-KEEP_PERIODS)
   const next: Ledger = {}
-  for (const k of kept) next[k] = k === key ? period : (ledger[k] ?? {})
+  const keptRuns: Runs = {}
+  for (const k of kept) {
+    next[k] = k === key ? period : (ledger[k] ?? {})
+    for (const sid of Object.keys(next[k] ?? {})) if (typeof runs[sid] === 'number') keptRuns[sid] = runs[sid]
+  }
   await $.store.set(LEDGER, next)
-  await saveShared($, { ...shared, ledger: next })
-  return Object.entries(period).reduce((sum, [sid, v]) => (sid === id ? sum : sum + num(v)), 0)
+  await $.store.set(RUNS, keptRuns)
+  await saveShared($, { ...shared, ledger: next, runs: keptRuns })
+  const last = runs[id]
+  return {
+    othersUsd: Object.entries(period).reduce((sum, [sid, v]) => (sid === id ? sum : sum + num(v)), 0),
+    ownUsd: num(period[id]),
+    ownReading: typeof last === 'number' ? last : null,
+  }
 }
 
 // With a plan price set: book this session's cost and learn what the period's others cost.
@@ -273,8 +303,8 @@ const bookPeriod = async ($: EngineInterface, planPrice: number, billingDay: num
   if (planPrice <= 0) return
   const { usd } = normalize(await read($, snap))
   const now = await $.clock.now()
-  const othersUsd = await book($, usd ?? 0, periodKey(now, billingDay))
-  await update($, snap, s => ({ ...normalize(s), othersUsd }))
+  const booked = await book($, usd, periodKey(now, billingDay))
+  await update($, snap, s => ({ ...normalize(s), ...booked }))
 }
 
 type Texts = {
@@ -562,7 +592,8 @@ export const figures = (s: Snapshot, cfg: Settings, now: number) => {
   const { billingDay, currency, eurRate, planPrice } = cfg
   const week = pickPeriod(s.limits)
   const short = s.limits.find(l => l.kind === 'five_hour')
-  const periodUsd = s.othersUsd + (s.usd ?? 0)
+  // The other sessions, plus this one's booked amount moved on to the live reading.
+  const periodUsd = s.othersUsd + addReading(s.ownUsd, s.ownReading ?? undefined, s.usd ?? 0)
   const planUsd = currency === 'EUR' ? planPrice / eurRate : planPrice
   return {
     week,

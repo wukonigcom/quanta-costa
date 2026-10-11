@@ -18,6 +18,8 @@ test('Missing or broken values fall back to safe defaults', () => {
     tokens: 0,
     baseTokens: 0,
     othersUsd: 0,
+    ownUsd: 0,
+    ownReading: null,
     now: 0,
   })
   expect(normalize({ usd: Number.NaN, tokens: Number.NaN }).usd).toBe(null)

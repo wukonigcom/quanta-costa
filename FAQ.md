@@ -152,7 +152,7 @@ They include cache reads. Each turn, the model reads the whole conversation agai
 
 Tokens are summed from the moment Quanta Costa loads. The cost covers everything since the session was opened or last resumed, because that is the total Claude Code reports. Subagents are counted in both.
 
-**Example:** on Monday you work for $30 in a session. On Tuesday you resume it and work for another $20. Claude Code starts counting again at zero, so on Tuesday the Session row shows $20, not $50.
+**Example:** on Monday you work for $30 in a session. On Tuesday you resume it and work for another $20. Claude Code starts counting again at zero, so on Tuesday the Session row shows $20, not $50. The Value row still gets both runs, see [Does Value count a session I resume later?](#does-value-count-a-session-i-resume-later).
 
 ### What exactly is "last prompt"?
 
@@ -180,12 +180,19 @@ Value    █████████░░░  $150.00 API value vs $200.00 plan
 
 All sessions of the period, in the terminal and in the desktop app, every window. Each session books its cost to a small shared ledger file on your machine, and every window adds them up. When you work in several windows, each one shows the same total after its next reply.
 
+### Does Value count a session I resume later?
+
+Yes, every run. Claude Code counts a resumed session from zero again. Since 1.5.2 Quanta Costa notices that and adds each run to the period.
+
+**Example:** Monday $30, Tuesday you resume the session and work for $20. The Session row shows $20 on Tuesday, the current run. The Value row adds $30 + $20 = $50.
+
+A session that runs across your billing day counts toward each period with the work done in it.
+
 ### Which sessions are not counted?
 
 - Sessions before you installed Quanta Costa or set `planPrice`.
 - Sessions on another computer (the ledger is local).
 - Chats on claude.ai, which share your limits but are not Claude Code sessions.
-- Earlier work in a session you resumed. Claude Code counts a resumed session from zero again, and Quanta Costa keeps the larger of the two amounts. In the example above, the period gets $30, not $50.
 
 So the real value of your plan is usually higher than shown.
 
@@ -233,7 +240,7 @@ No. Shown notices are remembered in the shared file, so each one appears once, i
 Press **h** or click **Help** at the end of the Session row. It explains every number in one line per topic, says whether your costs are real, and ends with the active settings:
 
 ```
-Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.1
+Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.2
 ```
 
 That last line is the quickest way to check which version runs and whether your settings arrived.
