@@ -347,7 +347,7 @@ const TEXTS: Record<Lang, Texts> = {
     helpReal:
       'No subscription limits reported: this session probably runs on an API key. Then the costs are real and billed.',
     helpTokens:
-      'Tokens: everything the model read and wrote, cache included, counted since Quanta Costa started. The cost always covers the whole session.',
+      'Tokens: everything the model read and wrote, cache included, counted since Quanta Costa started. The cost covers everything since this session was opened or last resumed.',
     helpLast: 'Last prompt: everything since your last prompt.',
     helpPace:
       'Pace: Quanta Costa extrapolates your usage so far this week. "on track" means it lasts until the reset, otherwise it shows when it would run out.',
@@ -398,7 +398,7 @@ const TEXTS: Record<Lang, Texts> = {
     helpReal:
       'Keine Abo-Limits gemeldet: Vermutlich läuft die Sitzung über einen API-Schlüssel. Dann sind die Kosten echt und werden abgerechnet.',
     helpTokens:
-      'Tokens: alles, was das Modell gelesen und geschrieben hat, inklusive Cache. Gezählt ab dem Start von Quanta Costa. Der Betrag gilt immer für die ganze Sitzung.',
+      'Tokens: alles, was das Modell gelesen und geschrieben hat, inklusive Cache. Gezählt ab dem Start von Quanta Costa. Der Betrag gilt ab dem Öffnen oder letzten Fortsetzen der Sitzung.',
     helpLast: 'Zuletzt: alles seit deinem letzten Prompt.',
     helpPace:
       'Tempo: Quanta Costa rechnet deinen bisherigen Wochenverbrauch hoch. „im Plan" heißt, es reicht bis zum Reset. Sonst steht da, wann das Kontingent leer wäre.',

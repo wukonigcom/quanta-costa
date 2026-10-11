@@ -150,7 +150,9 @@ They include cache reads. Each turn, the model reads the whole conversation agai
 
 ### Why do the tokens start at zero when I reload mid-session?
 
-Tokens are summed from the moment Quanta Costa loads. The cost always covers the whole session, because Claude Code reports it as a total. Subagents are counted in both.
+Tokens are summed from the moment Quanta Costa loads. The cost covers everything since the session was opened or last resumed, because that is the total Claude Code reports. Subagents are counted in both.
+
+**Example:** on Monday you work for $30 in a session. On Tuesday you resume it and work for another $20. Claude Code starts counting again at zero, so on Tuesday the Session row shows $20, not $50.
 
 ### What exactly is "last prompt"?
 
@@ -183,6 +185,7 @@ All sessions of the period, in the terminal and in the desktop app, every window
 - Sessions before you installed Quanta Costa or set `planPrice`.
 - Sessions on another computer (the ledger is local).
 - Chats on claude.ai, which share your limits but are not Claude Code sessions.
+- Earlier work in a session you resumed. Claude Code counts a resumed session from zero again, and Quanta Costa keeps the larger of the two amounts. In the example above, the period gets $30, not $50.
 
 So the real value of your plan is usually higher than shown.
 

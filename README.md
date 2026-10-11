@@ -74,7 +74,7 @@ Claude Code hands a plugin the options stored under the name it loaded the plugi
 Claude Code does not know your billing date. Set `billingDay` once and the row appears.
 
 **Why do the tokens start at zero mid-session?**
-Tokens are summed from the moment the plugin loads. The dollar or euro amount always covers the whole session.
+Tokens are summed from the moment the plugin loads. The dollar or euro amount covers everything since the session was opened or last resumed: Claude Code counts a resumed session from zero again.
 
 **Does it send my data anywhere?**
 No. It reads Claude Code's own usage figures through the plugin API and draws them. The value ledger stays in a local file. If Claude Code hands over no settings, it reads its own `pluginConfigs` entry from Claude's settings file and nothing else. Nothing leaves your machine.
