@@ -31,13 +31,41 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 
 ## Install
 
-Type this at the prompt of a Claude Code session in your terminal:
+**In a shell, in one line, with your settings:**
+
+```bash
+claude plugin install quanta-costa --marketplace wukonigcom/quanta-costa --config billingDay=29 --config currency=EUR --config planPrice=180
+```
+
+Put in your own billing day, currency (`USD` or `EUR`) and monthly plan price, or leave the `--config` parts out and set them later (see Settings).
+
+**Or inside Claude Code:**
 
 ```
-/plugin install quanta-costa --marketplace wukonigcom/quanta-costa
+/plugin marketplace add wukonigcom/quanta-costa
+/plugin install quanta-costa@quanta-costa
 ```
 
-Answer `y` to add the marketplace, pick the **user** scope with Enter, then set the options. A plugin installed for the user scope also runs in the Claude desktop app (Code tab).
+Then start a new Claude Code session. **Claude desktop app:** quit it completely (from the tray icon, closing the window is not enough) and open it again. A plugin installed for the user scope runs there too, in the Code tab.
+
+**Check:** the band appears above the prompt. Press `h`: the last line of the help shows your settings and the version.
+
+### Update
+
+```bash
+claude plugin marketplace update quanta-costa
+claude plugin update quanta-costa@quanta-costa
+```
+
+Then start a new session, or quit and reopen the desktop app. `/reload-plugins` alone can keep the old version running.
+
+### Uninstall
+
+```bash
+claude plugin uninstall quanta-costa@quanta-costa
+```
+
+The ledger stays in `~/.claude/quanta-costa/`; delete that folder too if you want it gone.
 
 ## Settings
 

@@ -369,7 +369,7 @@ claude plugin marketplace update quanta-costa
 claude plugin update quanta-costa@quanta-costa
 ```
 
-Then type `/reload-plugins` in Claude Code, or restart it. The help shows the version that runs.
+Then start a new session. In the Claude desktop app, quit it completely from the tray icon and open it again: each desktop session keeps the version that was installed when it started, so `/reload-plugins` there reloads the old one. The help shows the version that runs.
 
 ### On my phone, `/quanta-costa` went to Claude as a normal message.
 
@@ -385,13 +385,15 @@ When Claude Code shows its own feedback survey above the prompt, Quanta Costa st
 
 ### How do I install it?
 
-Type this at the prompt of a Claude Code session:
+In a shell, in one line, with your settings:
 
-```
-/plugin install quanta-costa --marketplace wukonigcom/quanta-costa
+```bash
+claude plugin install quanta-costa --marketplace wukonigcom/quanta-costa --config billingDay=29 --config currency=EUR --config planPrice=180
 ```
 
-Answer `y` to add the marketplace, pick the **user** scope, then set the options. A plugin in the user scope also runs in the Claude desktop app (Code tab).
+Or inside Claude Code: `/plugin marketplace add wukonigcom/quanta-costa`, then `/plugin install quanta-costa@quanta-costa`.
+
+Then start a new session. In the Claude desktop app, quit it completely from the tray icon and open it again. A plugin in the user scope also runs there, in the Code tab.
 
 ### What do I need?
 
