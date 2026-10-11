@@ -36,7 +36,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.5.4'
+export const VERSION = '1.6.0'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -599,7 +599,14 @@ const refresh = async ($: EngineInterface) => {
   }))
 }
 
-type Settings = { billingDay: number; currency: 'USD' | 'EUR'; eurRate: number; planPrice: number; lang: Lang }
+type Settings = {
+  billingDay: number
+  currency: 'USD' | 'EUR'
+  eurRate: number
+  planPrice: number
+  lang: Lang
+  openPane: boolean
+}
 
 const asNumber = (v: unknown): number | undefined => {
   if (typeof v === 'number' && Number.isFinite(v)) return v
@@ -613,10 +620,17 @@ export const toSettings = (o: Record<string, unknown>): Settings => ({
   eurRate: asNumber(o.eurRate) ?? DEFAULT_EUR_RATE,
   planPrice: asNumber(o.planPrice) ?? 0,
   lang: o.language === 'de' ? 'de' : 'en',
+  // On unless switched off: the pane opens beside the chat at every start.
+  openPane: !(o.openPane === false || o.openPane === 'false' || o.openPane === 'off'),
 })
 
 export const isAllDefault = (c: Settings) =>
-  c.billingDay === 0 && c.currency === 'USD' && c.planPrice === 0 && c.lang === 'en' && c.eurRate === DEFAULT_EUR_RATE
+  c.billingDay === 0 &&
+  c.currency === 'USD' &&
+  c.planPrice === 0 &&
+  c.lang === 'en' &&
+  c.eurRate === DEFAULT_EUR_RATE &&
+  c.openPane
 
 // Claude Code hands a plugin the options stored under the name it loaded the plugin by. The desktop
 // app loads a plugin installed from a local folder as "quanta-costa@inline", while `claude plugin
@@ -723,6 +737,7 @@ export const register: Register = (on, options) => {
     await $.command
       .register({ name: PANE, description: TEXTS[cfg.lang].commandDescription })
       .catch(() => undefined)
+    if (cfg.openPane) await $.ui.open({ id: PANE, title: 'Quanta Costa' }).catch(() => undefined)
     await refresh($).catch(() => undefined)
     // Loaded mid-session: "last prompt" starts at zero, not at the whole session.
     await update($, snap, s => {

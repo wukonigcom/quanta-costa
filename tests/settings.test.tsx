@@ -62,7 +62,9 @@ test('Settings handed over by Claude Code win, the file is not read', { options:
 
 test('Options as text or numbers, anything else falls back to defaults', () => {
   const c = toSettings({ billingDay: '29', planPrice: '180', currency: 'EUR', language: 'de', eurRate: 'x' })
-  expect([c.billingDay, c.planPrice, c.currency, c.lang, c.eurRate]).toEqual([29, 180, 'EUR', 'de', 0.89238])
+  expect([c.billingDay, c.planPrice, c.currency, c.lang, c.eurRate, c.openPane]).toEqual([29, 180, 'EUR', 'de', 0.89238, true])
+  expect([false, 'false', 'off'].map(v => toSettings({ openPane: v }).openPane)).toEqual([false, false, false])
+  expect(isAllDefault(toSettings({ openPane: false }))).toBe(false)
   expect(isAllDefault(toSettings({}))).toBe(true)
   expect(isAllDefault(c)).toBe(false)
 })

@@ -240,7 +240,7 @@ No. Shown notices are remembered in the shared file, so each one appears once, i
 Press **h** or click **Help** at the end of the Session row. It explains every number in one line per topic, says whether your costs are real, and ends with the active settings:
 
 ```
-Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.5.4
+Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.6.0
 ```
 
 That last line is the quickest way to check which version runs and whether your settings arrived.
@@ -297,6 +297,7 @@ Set `eurRate` to the current euros per US dollar, for example `0.92`. The help s
 | `currency` | `EUR` | Amounts in euros |
 | `eurRate` | `0.92` | Euros per US dollar |
 | `planPrice` | `180` | Your monthly price in your currency; turns on the Value row |
+| `openPane` | `false` | Keeps the pane closed at start (default `true`: it opens beside the chat) |
 
 `0` for `billingDay` or `planPrice` hides the row again.
 

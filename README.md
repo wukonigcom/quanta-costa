@@ -76,6 +76,7 @@ The ledger stays in `~/.claude/quanta-costa/`; delete that folder too if you wan
 | `currency` | `USD` or `EUR` | `USD` |
 | `eurRate` | Euros per US dollar, used with `EUR` | `0.89238` (ECB, 2026-10-09) |
 | `planPrice` | Your monthly plan price in your currency, as on your receipt. Turns on the Value row. `0` hides it. | `0` |
+| `openPane` | Opens the Quanta Costa pane beside the chat at every start. `false` keeps it closed; `/quanta-costa` still opens it. | `true` |
 
 Change them later with `/plugin configure quanta-costa` in Claude Code or `claude plugin configure quanta-costa` in a shell.
 

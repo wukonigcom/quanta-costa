@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
 
 const PANE_PROPS = {
   title: 'Quanta Costa',
@@ -108,4 +109,30 @@ test('/quanta-costa as a command opens the pane and answers with the view as tex
   })
   expect(opened).toEqual(['quanta-costa'])
   expect(text).toMatch(/^🧾 Quanta Costa \| Week: no reading yet.* \| Session: 0 tokens/)
+})
+
+const startWorld = (on: On, opened: string[]) => {
+  on('ui.open', ($, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true as const } }
+  })
+  mock.clock(on, { now: Date.parse('2026-10-10T10:00:00Z') })
+  mock.store(on)
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: 'this-session' }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [], cost: { usd: 1 } } }))
+}
+
+test('The pane opens beside the chat at every start (openPane, on by default)', { options: { currency: 'EUR' } }, async ($, on) => {
+  const opened: string[] = []
+  startWorld(on, opened)
+  await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
+  expect(opened).toEqual(['quanta-costa'])
+})
+
+test('openPane false keeps the pane closed at start', { options: { currency: 'EUR', openPane: false } }, async ($, on) => {
+  const opened: string[] = []
+  startWorld(on, opened)
+  await $.session.start({ cwd: 'C:/work', surface: 'desktop', isInteractive: true })
+  expect(opened).toEqual([])
 })
