@@ -71,6 +71,8 @@ test(
     on('session.measure', ($, e) => ({ changed: e.changed }))
     on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [], cost: { usd: 4.95 } } }))
     on('prompt.submit', ($, e) => ({ text: e.text, context: e.context }))
+    // A new session: Claude Code's counter starts at zero.
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: [], cost: { usd: 0 }, changed: ['cost'] })
     await $.session.measure({
       context: { window: 200_000 },
       rateLimits: [{ kind: 'seven_day', percentUsed: 42, resetsAt: '2026-10-12T10:00:00Z' }],
@@ -84,7 +86,7 @@ test(
     expect(context).toHaveLength(1)
     expect(context[0]).toMatch(/^The person typed \/quanta-costa, most likely on their phone/)
     expect(context[0]).toMatch(
-      /\n🧾 Quanta Costa \| Period: 1\.6 of 4\.3 weeks gone · 2\.7 wk left · renews in 19 days \| Week: 42% used · 58% free · on track \(resets Oct 12\) \| Session: 0 tokens · €4\.42 · last prompt €4\.42 · 0 tokens \| Value: €4\.42 API value vs €180\.00 plan \(0\.0×\)$/,
+      /\n🧾 Quanta Costa \| Period: 1\.6 of 4\.3 weeks gone · 2\.7 wk left · renews in 19 days \| Week: 42% used · 58% free · on track \(resets Oct 12\) \| Session: 0 tokens · €4\.42 · last prompt €4\.42 · 0 tokens \| Value: €4\.42 API value since Oct 10 vs €180\.00 plan \(0\.0×\)$/,
     )
 
     // Any other prompt goes on untouched.

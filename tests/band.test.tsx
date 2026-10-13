@@ -62,7 +62,7 @@ test(
       expect(await ui.find({ text: /this period runs Sep 29 to Oct 29/ })).toBeDefined()
       expect(await ui.find({ key: 'helpbox' })).toBeDefined()
       expect(
-        await ui.find({ text: /^Active settings: language en · billing day 29 · EUR · plan €5\.00 · version 1\.6\.0$/ }),
+        await ui.find({ text: /^Active settings: language en · billing day 29 · EUR · plan €5\.00 · version 1\.6\.1$/ }),
       ).toBeDefined()
 
       await ui.press({ key: 'help' })
@@ -129,6 +129,8 @@ test(
     world(on)
     mock.store(on, { ledger: { '2026-09-29': { 'earlier-session': 3 } } })
     on('session.id', () => ({ value: 'this-session' }))
+    // A new session: Claude Code's counter starts at zero.
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: LIMITS, cost: { usd: 0 }, changed: ['cost'] })
     await $.session.measure({
       context: { window: 200_000 },
       rateLimits: LIMITS,
@@ -164,6 +166,8 @@ test(
     world(on)
     mock.store(on, { ledger: { '2026-09-29': { 'earlier-session': 3 } } })
     on('session.id', () => ({ value: 'this-session' }))
+    // A new session: Claude Code's counter starts at zero.
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: LIMITS, cost: { usd: 0 }, changed: ['cost'] })
     await $.session.measure({
       context: { window: 200_000 },
       rateLimits: LIMITS,

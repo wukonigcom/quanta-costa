@@ -10,8 +10,9 @@ const EMPTY: Snapshot = {
   tokens: 0,
   baseTokens: 0,
   othersUsd: 0,
-  ownUsd: 0,
-  ownReading: null,
+  ownFirst: null,
+  ownTop: 0,
+  since: null,
   now: 0,
 }
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
@@ -25,8 +26,9 @@ export const normalize = (s: Partial<Snapshot> | null | undefined): Snapshot => 
   tokens: num(s?.tokens),
   baseTokens: num(s?.baseTokens),
   othersUsd: num(s?.othersUsd),
-  ownUsd: num(s?.ownUsd),
-  ownReading: typeof s?.ownReading === 'number' && Number.isFinite(s.ownReading) ? s.ownReading : null,
+  ownFirst: typeof s?.ownFirst === 'number' && Number.isFinite(s.ownFirst) ? s.ownFirst : null,
+  ownTop: num(s?.ownTop),
+  since: typeof s?.since === 'number' && Number.isFinite(s.since) ? s.since : null,
   now: num(s?.now),
 })
 
@@ -36,7 +38,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.6.0'
+export const VERSION = '1.6.1'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -225,35 +227,47 @@ const configDir = async ($: EngineInterface): Promise<string | undefined> => {
   }
 }
 
-// Claude Code keeps a plugin's store per name it was loaded under (the desktop app's
-// "quanta-costa@inline" next to "quanta-costa@<marketplace>"), which split the value across
-// stores. All sessions share one small file instead; each store is still merged in.
+// ledger.json: the notices shown, and the amounts versions before 1.6.1 booked per session (kept as
+// they are, never raised again) with the last reading each was booked at.
 type Shared = { ledger?: Ledger; notices?: Notices; runs?: Runs }
 
-// Two copies: ledger.json with every booking, ledger.backup.json at most every ten minutes. A crash
-// can leave a file just written as zero bytes; the older copy has long reached the disk by then, and
-// loading merges whatever of both is readable, so at most the last minutes are lost, never the period.
+// Every file comes in two copies: the file with every booking, its backup at most every ten minutes.
+// A crash can leave a file just written as zero bytes; the older copy has long reached the disk by
+// then, and loading merges whatever of both is readable, so at most the last minutes are lost.
 const SHARED_FILE = 'ledger.json'
 const BACKUP_FILE = 'ledger.backup.json'
+const VALUE_FILE = 'value.json'
+const VALUE_BACKUP_FILE = 'value.backup.json'
 const BACKUP_EVERY = 10 * 60_000
-let backedUpAt = 0
+const backedUpAt: Record<string, number> = {}
 
-const readShared = async ($: EngineInterface, path: string): Promise<Shared | null> => {
+const readJson = async ($: EngineInterface, path: string): Promise<Record<string, unknown> | null> => {
   try {
     const text = await $.fs.read(path)
     if (typeof text !== 'string') return null
     const data = JSON.parse(text) as unknown
-    return data !== null && typeof data === 'object' ? (data as Shared) : null
+    return data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : null
   } catch {
     return null
   }
 }
 
+const writeWithBackup = async ($: EngineInterface, file: string, backup: string, data: unknown) => {
+  const dir = await configDir($)
+  if (!dir) return
+  const text = JSON.stringify(data, null, 1)
+  await $.fs.write(`${dir}/quanta-costa/${file}`, text).catch(() => undefined)
+  const now = await $.clock.now()
+  if (now - (backedUpAt[file] ?? 0) < BACKUP_EVERY) return
+  backedUpAt[file] = now
+  await $.fs.write(`${dir}/quanta-costa/${backup}`, text).catch(() => undefined)
+}
+
 const loadShared = async ($: EngineInterface): Promise<Shared> => {
   const dir = await configDir($)
   if (!dir) return {}
-  const main = await readShared($, `${dir}/quanta-costa/${SHARED_FILE}`)
-  const backup = await readShared($, `${dir}/quanta-costa/${BACKUP_FILE}`)
+  const main = (await readJson($, `${dir}/quanta-costa/${SHARED_FILE}`)) as Shared | null
+  const backup = (await readJson($, `${dir}/quanta-costa/${BACKUP_FILE}`)) as Shared | null
   if (!main && !backup) return {}
   return {
     ledger: mergeLedgers(main?.ledger, backup?.ledger),
@@ -263,29 +277,12 @@ const loadShared = async ($: EngineInterface): Promise<Shared> => {
   }
 }
 
-const saveShared = async ($: EngineInterface, data: Shared) => {
-  const dir = await configDir($)
-  if (!dir) return
-  const text = JSON.stringify(data, null, 1)
-  await $.fs.write(`${dir}/quanta-costa/${SHARED_FILE}`, text).catch(() => undefined)
-  const now = await $.clock.now()
-  if (now - backedUpAt < BACKUP_EVERY) return
-  backedUpAt = now
-  await $.fs.write(`${dir}/quanta-costa/${BACKUP_FILE}`, text).catch(() => undefined)
-}
+const saveShared = ($: EngineInterface, data: Shared) => writeWithBackup($, SHARED_FILE, BACKUP_FILE, data)
 
-// The last cost reading booked per session. Claude Code counts a resumed session from zero
-// again, so the readings alone would lose every run but the largest.
+// The last cost reading booked per session by versions before 1.6.1.
 type Runs = Record<string, number>
-const RUNS = 'runs'
 
-// A session's booked amount after a new reading: what it added since the last reading, or its
-// whole reading when that is lower than the last (a resumed session, counted from zero again).
-// Without a last reading (booked by a version before 1.5.2) the larger amount counts, as before.
-export const addReading = (booked: number, last: number | undefined, reading: number) =>
-  last === undefined ? Math.max(booked, reading) : reading >= last ? booked + (reading - last) : booked + reading
-
-// The store is only a fallback for the shared file. An unclean shutdown can leave it unreadable
+// The store is only a fallback for the shared files. An unclean shutdown can leave it unreadable
 // (zero bytes), which must never stop the booking: a broken store reads as empty, a failed write is skipped.
 const storeGet = async ($: EngineInterface, key: string): Promise<unknown> => {
   try {
@@ -315,46 +312,207 @@ export const mergeLedgers = (a: Ledger = {}, b: Ledger = {}): Ledger => {
   return out
 }
 
-// Books what this session added since its last reading to the current period in the shared
-// ledger, and returns what the period's other sessions cost. Without a reading nothing is booked.
+// The amounts booked before 1.6.1: those in ledger.json, plus any session only an old
+// per-name store knows (versions before 1.5.0 kept them there). A store never raises an amount.
+const legacyLedger = async ($: EngineInterface, shared: Shared): Promise<Ledger> => {
+  const out = mergeLedgers(shared.ledger)
+  const stored = ((await storeGet($, LEDGER)) ?? {}) as Ledger
+  for (const [period, sessions] of Object.entries(stored ?? {})) {
+    for (const [sid, usd] of Object.entries(sessions ?? {})) {
+      const target = (out[period] ??= {})
+      if (!(sid in target)) target[sid] = num(usd)
+    }
+  }
+  return out
+}
+
+// value.json, since 1.6.1: per period, session and run (one Claude Code process with Quanta Costa
+// loaded) the first and the highest cost reading there. A run's cost is the difference: whatever
+// Claude Code's counter carried into the run (a resumed session's earlier runs) was counted by those
+// runs already. Only the run itself ever raises its entry, and copies merge by the higher reading,
+// so a stale copy that another session writes back can delay a number, but never count it twice.
+type RunEntry = [number, number]
+type Counts = Record<string, Record<string, Record<string, RunEntry>>>
+// When counting began in a period. Unknown when the period holds amounts from before 1.6.1.
+type Since = Record<string, number>
+type ValueDoc = { since: Since; counts: Counts }
+const VALUE = 'value'
+
+const isEntry = (e: unknown): e is RunEntry =>
+  Array.isArray(e) && e.length === 2 && e.every(v => typeof v === 'number' && Number.isFinite(v))
+
+// Two copies as one: per run the entry with the higher reading.
+export const mergeCounts = (a: Counts = {}, b: Counts = {}): Counts => {
+  const out: Counts = {}
+  for (const source of [a, b]) {
+    for (const [period, sessions] of Object.entries(source ?? {})) {
+      for (const [sid, runs] of Object.entries(sessions ?? {})) {
+        for (const [run, entry] of Object.entries(runs ?? {})) {
+          if (!isEntry(entry)) continue
+          const target = ((out[period] ??= {})[sid] ??= {})
+          const had = target[run]
+          if (!had || entry[1] > had[1] || (entry[1] === had[1] && entry[0] > had[0])) target[run] = [entry[0], entry[1]]
+        }
+      }
+    }
+  }
+  return out
+}
+
+// Two copies as one: per period the earlier start.
+export const mergeSince = (a: Since = {}, b: Since = {}): Since => {
+  const out: Since = {}
+  for (const source of [a, b]) {
+    for (const [period, ms] of Object.entries(source ?? {})) {
+      if (typeof ms === 'number' && Number.isFinite(ms)) out[period] = Math.min(out[period] ?? ms, ms)
+    }
+  }
+  return out
+}
+
+// A period's value: the amounts from before 1.6.1 and every run's cost, except the run left out.
+export const periodValue = (legacy: Record<string, number> = {}, counts: Counts[string] = {}, skip?: { sid: string; run: string }) => {
+  let usd = Object.values(legacy).reduce((sum, v) => sum + num(v), 0)
+  for (const [sid, runs] of Object.entries(counts)) {
+    for (const [run, entry] of Object.entries(runs ?? {})) {
+      if (skip && skip.sid === sid && skip.run === run) continue
+      if (isEntry(entry)) usd += Math.max(0, entry[1] - entry[0])
+    }
+  }
+  return usd
+}
+
+// A run's id starts with its start time, so the latest run of a session is known.
+const newRunId = (now: number) => `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+const runStart = (id: string) => {
+  const start = parseInt(id.split('-')[0] ?? '', 36)
+  return Number.isFinite(start) ? start : 0
+}
+
+// The session's last reading before this run: the highest reading of its latest other run, else
+// the last reading a version before 1.6.1 booked for it.
+export const readingBefore = (counts: Counts, oldRuns: Runs | undefined, sid: string, run: string): number | undefined => {
+  let latest: { start: number; top: number } | undefined
+  for (const sessions of Object.values(counts)) {
+    for (const [id, entry] of Object.entries(sessions[sid] ?? {})) {
+      if (id === run || !isEntry(entry)) continue
+      const start = runStart(id)
+      if (!latest || start > latest.start || (start === latest.start && entry[1] > latest.top)) latest = { start, top: entry[1] }
+    }
+  }
+  if (latest) return latest.top
+  const old = oldRuns?.[sid]
+  return typeof old === 'number' && Number.isFinite(old) ? old : undefined
+}
+
+// This run's entry for a period after a new reading. `carried`: the run's entry in the period
+// before, `before`: the session's last reading before this run.
+export const nextEntry = (entry: RunEntry | undefined, carried: RunEntry | undefined, before: number | undefined, reading: number): RunEntry => {
+  if (!entry) {
+    // Into a new period: on from where the run left the last one.
+    if (carried) return [carried[1], Math.max(carried[1], reading)]
+    // A new run. A reading at or above the session's last one carries the earlier runs' cost
+    // over, counted there already; a lower one is a counter that started from zero.
+    return before !== undefined && reading >= before ? [before, reading] : [reading, reading]
+  }
+  // Started at zero and only then got the earlier runs' cost carried over.
+  if (entry[0] === 0 && entry[1] === 0 && before !== undefined && before > 0 && reading >= before) return [before, reading]
+  return [entry[0], Math.max(entry[1], reading)]
+}
+
+const latestPeriods = <T,>(byPeriod: Record<string, T>): Record<string, T> => {
+  const out: Record<string, T> = {}
+  for (const key of Object.keys(byPeriod).sort().slice(-KEEP_PERIODS)) out[key] = byPeriod[key] as T
+  return out
+}
+
+const loadValue = async ($: EngineInterface): Promise<ValueDoc> => {
+  const dir = await configDir($)
+  const copies = [(await storeGet($, VALUE)) as Partial<ValueDoc> | undefined]
+  if (dir) {
+    copies.push(
+      ((await readJson($, `${dir}/quanta-costa/${VALUE_FILE}`)) ?? undefined) as Partial<ValueDoc> | undefined,
+      ((await readJson($, `${dir}/quanta-costa/${VALUE_BACKUP_FILE}`)) ?? undefined) as Partial<ValueDoc> | undefined,
+    )
+  }
+  let counts: Counts = {}
+  let since: Since = {}
+  for (const copy of copies) {
+    if (!copy || typeof copy !== 'object') continue
+    counts = mergeCounts(counts, copy.counts)
+    since = mergeSince(since, copy.since)
+  }
+  return { counts, since }
+}
+
+type Run = { sid: string; id: string; periods: Record<string, RunEntry>; since: Since }
+const NO_RUN: Run = { sid: '', id: '', periods: {}, since: {} }
+// This process's run. Kept here, not in the plugin state: bookings that overlap at the start must
+// see the same run, and the state hands each event its own copy until that event is done.
+let currentRun: Run = NO_RUN
+
+// Books this run's reading to the current period and returns what the period's other runs and
+// the amounts from before 1.6.1 add up to. Without a reading nothing is booked.
 const book = async ($: EngineInterface, usd: number | null, key: string) => {
-  const id = await $.session.id()
+  const sid = await $.session.id()
+  const now = await $.clock.now()
   const shared = await loadShared($)
-  const ledger = mergeLedgers(shared.ledger, ((await storeGet($, LEDGER)) ?? {}) as Ledger)
-  const runs: Runs = { ...(((await storeGet($, RUNS)) ?? {}) as Runs), ...(shared.runs ?? {}) }
-  const period = { ...(ledger[key] ?? {}) }
+  const legacy = await legacyLedger($, shared)
+  const doc = await loadValue($)
+  let run: Run = currentRun.sid === sid && currentRun.id ? currentRun : { sid, id: newRunId(now), periods: {}, since: {} }
   if (usd !== null) {
-    const last = runs[id]
-    period[id] = addReading(num(period[id]), typeof last === 'number' ? last : undefined, usd)
-    runs[id] = usd
+    const before = readingBefore(doc.counts, shared.runs, sid, run.id)
+    const earlier = Object.keys(run.periods).filter(k => k < key).sort()
+    const carried = earlier.length > 0 ? run.periods[earlier[earlier.length - 1] as string] : undefined
+    run = { ...run, periods: latestPeriods({ ...run.periods, [key]: nextEntry(run.periods[key], carried, before, usd) }) }
   }
-  const kept = Object.keys({ ...ledger, [key]: period })
-    .sort()
-    .slice(-KEEP_PERIODS)
-  const next: Ledger = {}
-  const keptRuns: Runs = {}
-  for (const k of kept) {
-    next[k] = k === key ? period : (ledger[k] ?? {})
-    for (const sid of Object.keys(next[k] ?? {})) if (typeof runs[sid] === 'number') keptRuns[sid] = runs[sid]
-  }
-  await storeSet($, LEDGER, next)
-  await storeSet($, RUNS, keptRuns)
-  await saveShared($, { ...shared, ledger: next, runs: keptRuns })
-  const last = runs[id]
+  const mine: Counts = {}
+  for (const [period, entry] of Object.entries(run.periods)) mine[period] = { [sid]: { [run.id]: entry } }
+  const counts = latestPeriods(mergeCounts(doc.counts, mine))
+  const since = mergeSince(doc.since, run.since)
+  // Counting began with this booking, or with the period itself when an earlier period was counted.
+  const isLegacyPeriod = Object.keys(legacy[key] ?? {}).length > 0
+  const wasCounting =
+    Object.keys(counts).some(k => k < key) || Object.entries(legacy).some(([k, sessions]) => k < key && Object.keys(sessions ?? {}).length > 0)
+  if (usd !== null && since[key] === undefined && !isLegacyPeriod) since[key] = wasCounting ? Date.parse(`${key}T00:00:00Z`) : now
+  run = { ...run, since: latestPeriods(since) }
+  currentRun = run
+  const next: ValueDoc = { since: latestPeriods(since), counts }
+  await storeSet($, VALUE, next)
+  await writeWithBackup($, VALUE_FILE, VALUE_BACKUP_FILE, next)
+  const own = run.periods[key]
   return {
-    othersUsd: Object.entries(period).reduce((sum, [sid, v]) => (sid === id ? sum : sum + num(v)), 0),
-    ownUsd: num(period[id]),
-    ownReading: typeof last === 'number' ? last : null,
+    othersUsd: periodValue(legacy[key], counts[key], { sid, run: run.id }),
+    ownFirst: own ? own[0] : null,
+    ownTop: own ? own[1] : 0,
+    since: since[key] ?? null,
   }
 }
 
+// One booking at a time: two at once, at the very start, would each begin a run of their own.
+let booking: Promise<unknown> = Promise.resolve()
+const oneAtATime = <T,>(task: () => Promise<T>): Promise<T> => {
+  const next = booking.then(task, task)
+  booking = next.catch(() => undefined)
+  return next
+}
+
 // With a plan price set: book this session's cost and learn what the period's others cost.
-const bookPeriod = async ($: EngineInterface, planPrice: number, billingDay: number) => {
-  if (planPrice <= 0) return
-  const { usd } = normalize(await read($, snap))
-  const now = await $.clock.now()
-  const booked = await book($, usd, periodKey(now, billingDay))
-  await update($, snap, s => ({ ...normalize(s), ...booked }))
+const bookPeriod = ($: EngineInterface, planPrice: number, billingDay: number) =>
+  oneAtATime(async () => {
+    if (planPrice <= 0) return
+    const { usd } = normalize(await read($, snap))
+    const now = await $.clock.now()
+    const booked = await book($, usd, periodKey(now, billingDay))
+    await update($, snap, s => ({ ...normalize(s), ...booked }))
+  })
+
+// A period's whole value, for the look back once it has ended.
+const valueOf = async ($: EngineInterface, key: string) => {
+  const legacy = await legacyLedger($, await loadShared($))
+  const doc = await loadValue($)
+  if (!legacy[key] && !doc.counts[key]) return null
+  return periodValue(legacy[key], doc.counts[key])
 }
 
 type Texts = {
@@ -372,7 +530,7 @@ type Texts = {
   sessionLast: (cost: string, tokens: string) => string
   help: string
   closeHelp: string
-  valueLine: (value: string, plan: string) => string
+  valueLine: (value: string, plan: string, since?: string) => string
   shortWarn: (percent: string, freeIn?: string) => string
   helpTitle: string
   helpPeriod: (day: number, start: string, end: string) => string
@@ -411,7 +569,7 @@ const TEXTS: Record<Lang, Texts> = {
     sessionLast: (cost, tokens) => `· last prompt ${cost} · ${tokens} tokens`,
     help: 'Help',
     closeHelp: 'Close help',
-    valueLine: (value, plan) => `${value} API value vs ${plan} plan`,
+    valueLine: (value, plan, since) => `${value} API value${since ? ` since ${since}` : ''} vs ${plan} plan`,
     shortWarn: (percent, freeIn) => `5-hour limit ${percent} used` + (freeIn ? ` · resets in ${freeIn}` : ''),
     helpTitle: 'Quanta Costa: what the numbers mean',
     helpPeriod: (day, start, end) =>
@@ -427,12 +585,12 @@ const TEXTS: Record<Lang, Texts> = {
     helpReal:
       'No subscription limits reported: this session probably runs on an API key. Then the costs are real and billed.',
     helpTokens:
-      'Tokens: everything the model read and wrote, cache included, counted since Quanta Costa started. The cost covers everything since this session was opened or last resumed.',
+      "Tokens: everything the model read and wrote, cache included, counted since Quanta Costa started. The cost is Claude Code's own figure for this session, as in /cost; a resumed session can carry its earlier cost over.",
     helpLast: 'Last prompt: everything since your last prompt.',
     helpPace:
       'Pace: Quanta Costa extrapolates your usage so far this week. "on track" means it lasts until the reset, otherwise it shows when it would run out.',
     helpValue:
-      'Value: the API value of all sessions in this period (those where Quanta Costa ran) against your plan price. Above 1× your plan has paid for itself.',
+      'Value: the API value of all sessions in this period, counted while Quanta Costa ran, against your plan price. Above 1× your plan has paid for itself. "since" shows the day Quanta Costa started counting, when that was after the period began. A resumed session never counts twice.',
     helpEuro: rate => `Euro: converted at $1 = €${rate} (setting eurRate).`,
     helpNotices:
       'Notices: Quanta Costa tells you once when the week passes 80% and 90%, when a fresh week starts, and at the end of each period how much it was worth.',
@@ -462,7 +620,7 @@ const TEXTS: Record<Lang, Texts> = {
     sessionLast: (cost, tokens) => `· zuletzt ${cost} · ${tokens} Tokens`,
     help: 'Hilfe',
     closeHelp: 'Hilfe zu',
-    valueLine: (value, plan) => `${value} API-Wert vs. ${plan} Abo`,
+    valueLine: (value, plan, since) => `${value} API-Wert${since ? ` seit ${since}` : ''} vs. ${plan} Abo`,
     shortWarn: (percent, freeIn) => `Kurzzeit-Bremse ${percent} voll` + (freeIn ? ` · frei in ${freeIn}` : ''),
     helpTitle: 'Quanta Costa: was die Zahlen bedeuten',
     helpPeriod: (day, start, end) =>
@@ -478,12 +636,12 @@ const TEXTS: Record<Lang, Texts> = {
     helpReal:
       'Keine Abo-Limits gemeldet: Vermutlich läuft die Sitzung über einen API-Schlüssel. Dann sind die Kosten echt und werden abgerechnet.',
     helpTokens:
-      'Tokens: alles, was das Modell gelesen und geschrieben hat, inklusive Cache. Gezählt ab dem Start von Quanta Costa. Der Betrag gilt ab dem Öffnen oder letzten Fortsetzen der Sitzung.',
+      'Tokens: alles, was das Modell gelesen und geschrieben hat, inklusive Cache. Gezählt ab dem Start von Quanta Costa. Der Betrag ist Claude Codes eigene Zahl für diese Sitzung, wie bei /cost; eine fortgesetzte Sitzung kann ihre früheren Kosten mitbringen.',
     helpLast: 'Zuletzt: alles seit deinem letzten Prompt.',
     helpPace:
       'Tempo: Quanta Costa rechnet deinen bisherigen Wochenverbrauch hoch. „im Plan" heißt, es reicht bis zum Reset. Sonst steht da, wann das Kontingent leer wäre.',
     helpValue:
-      'Wert: der API-Wert aller Sitzungen dieser Periode (in denen Quanta Costa lief) im Vergleich zu deinem Abo-Preis. Über 1× hat sich dein Abo bezahlt gemacht.',
+      'Wert: der API-Wert aller Sitzungen dieser Periode, gezählt solange Quanta Costa lief, im Vergleich zu deinem Abo-Preis. Über 1× hat sich dein Abo bezahlt gemacht. „seit" nennt den Tag, ab dem Quanta Costa zählt, wenn das nach Periodenbeginn war. Eine fortgesetzte Sitzung zählt nie doppelt.',
     helpEuro: rate => `Euro: umgerechnet mit 1 $ = ${rate} € (Einstellung eurRate).`,
     helpNotices:
       'Hinweise: Quanta Costa meldet sich je einmal, wenn die Woche 80 % und 90 % erreicht, wenn eine neue Woche startet und am Ende jeder Periode mit ihrem Wert.',
@@ -560,10 +718,8 @@ const notify = async ($: EngineInterface, o: NoticeOptions) => {
     const key = periodKey(now, o.billingDay)
     const seen = stored.seenPeriod
     if (seen && seen < key) {
-      const ledger = mergeLedgers(shared.ledger, ((await storeGet($, LEDGER)) ?? {}) as Ledger)
-      const ended = ledger[seen]
-      if (ended) {
-        const usd = Object.values(ended).reduce((sum, v) => sum + num(v), 0)
+      const usd = await valueOf($, seen)
+      if (usd !== null) {
         const planUsd = o.currency === 'EUR' ? o.planPrice / o.eurRate : o.planPrice
         toasts.push(
           t.review(
@@ -651,13 +807,23 @@ export const findSavedOptions = async ($: EngineInterface): Promise<Record<strin
   return null
 }
 
+// When counting began in this period, worth saying only when that was after the period started.
+export const countedSince = (since: number | null, now: number, billingDay: number) => {
+  if (since === null) return null
+  const key = periodKey(now, billingDay)
+  if (periodKey(since, billingDay) !== key) return null
+  const { y, m, d } = localDate(since)
+  return new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10) > key ? since : null
+}
+
 // Everything the view shows, worked out once for the band, the pane and the text summary.
 export const figures = (s: Snapshot, cfg: Settings, now: number) => {
   const { billingDay, currency, eurRate, planPrice } = cfg
   const week = pickPeriod(s.limits)
   const short = s.limits.find(l => l.kind === 'five_hour')
-  // The other sessions, plus this one's booked amount moved on to the live reading.
-  const periodUsd = s.othersUsd + addReading(s.ownUsd, s.ownReading ?? undefined, s.usd ?? 0)
+  // The other runs, plus this run's cost up to the live reading.
+  const ownUsd = s.ownFirst === null ? 0 : Math.max(0, Math.max(s.ownTop, s.usd ?? 0) - s.ownFirst)
+  const periodUsd = s.othersUsd + ownUsd
   const planUsd = currency === 'EUR' ? planPrice / eurRate : planPrice
   return {
     week,
@@ -671,6 +837,7 @@ export const figures = (s: Snapshot, cfg: Settings, now: number) => {
     periodUsd,
     planUsd,
     valueRatio: planPrice > 0 ? periodUsd / planUsd : null,
+    since: countedSince(s.since, now, billingDay),
   }
 }
 
@@ -698,7 +865,8 @@ export const summaryText = (s: Snapshot, cfg: Settings, now: number): string => 
   const last = t.sessionLast(money(f.lastUsd, currency, eurRate, lang), tokenText(f.lastTokens, lang))
   lines.push(`${t.session}: ${t.sessionMain(tokenText(s.tokens, lang), cost)} ${last}`)
   if (f.valueRatio !== null) {
-    const value = t.valueLine(money(f.periodUsd, currency, eurRate, lang), money(f.planUsd, currency, eurRate, lang))
+    const since = f.since !== null ? shortDate(f.since, lang) : undefined
+    const value = t.valueLine(money(f.periodUsd, currency, eurRate, lang), money(f.planUsd, currency, eurRate, lang), since)
     lines.push(`${t.value}: ${value} (${dec(f.valueRatio, 1, lang)}×)`)
   }
   if (f.isShortTight && f.short) {
@@ -825,7 +993,7 @@ export const register: Register = (on, options) => {
     const isOpen = await read($, isHelpOpen)
     const now = s.now || (await $.clock.now())
 
-    const { week, short, isShortTight, isSubscription, lastUsd, lastTokens, period, forecast, periodUsd, planUsd, valueRatio } =
+    const { week, short, isShortTight, isSubscription, lastUsd, lastTokens, period, forecast, periodUsd, planUsd, valueRatio, since } =
       figures(s, cfg, now)
 
     const off = lang === 'de' ? 'aus' : 'off'
@@ -916,7 +1084,13 @@ export const register: Register = (on, options) => {
           <Box key="value" gap={1}>
             {label(t.value)}
             <Text color={valueRatio >= 1 ? 'success' : 'suggestion'}>{bar(valueRatio * 100)}</Text>
-            <Text>{t.valueLine(money(periodUsd, currency, eurRate, lang), money(planUsd, currency, eurRate, lang))}</Text>
+            <Text>
+              {t.valueLine(
+                money(periodUsd, currency, eurRate, lang),
+                money(planUsd, currency, eurRate, lang),
+                since !== null ? shortDate(since, lang) : undefined,
+              )}
+            </Text>
             {valueRatio >= 1 ? (
               <Text color="success" bold>{`(${dec(valueRatio, 1, lang)}×)`}</Text>
             ) : (

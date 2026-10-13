@@ -150,9 +150,9 @@ They include cache reads. Each turn, the model reads the whole conversation agai
 
 ### Why do the tokens start at zero when I reload mid-session?
 
-Tokens are summed from the moment Quanta Costa loads. The cost covers everything since the session was opened or last resumed, because that is the total Claude Code reports. Subagents are counted in both.
+Tokens are summed from the moment Quanta Costa loads. The cost is the total Claude Code reports for the session, the same as `/cost`. Subagents are counted in both.
 
-**Example:** on Monday you work for $30 in a session. On Tuesday you resume it and work for another $20. Claude Code starts counting again at zero, so on Tuesday the Session row shows $20, not $50. The Value row still gets both runs, see [Does Value count a session I resume later?](#does-value-count-a-session-i-resume-later).
+**Example:** on Monday you work for $30 in a session. On Tuesday you resume it and work for another $20. Claude Code usually carries the $30 over, so the Session row shows $50. After a hard stop (a crash, or the app killed) it can start from zero again, and the Session row shows $20. The Value row counts $50 either way, see [Does Value count a session I resume later?](#does-value-count-a-session-i-resume-later).
 
 ### What exactly is "last prompt"?
 
@@ -180,11 +180,21 @@ Value    █████████░░░  $150.00 API value vs $200.00 plan
 
 All sessions of the period, in the terminal and in the desktop app, every window. Each session books its cost to a small shared ledger file on your machine, and every window adds them up. When you work in several windows, each one shows the same total after its next reply.
 
+### Since when does Value count?
+
+From the moment Quanta Costa first booked a cost in the period. When that was after the period began, for example on the day you installed it, the row says so:
+
+```
+Value    ████████████  $412.30 API value since Oct 9 vs $200.00 plan (2.1×)
+```
+
+Only work done from then on counts. A session you resume brings the cost Claude Code counted for it before, and that part is left out. In a full period the row shows no date: it counts from the first day. For a period that began before 1.6.1 the start was not recorded, so no date appears until the next period.
+
 ### Does Value count a session I resume later?
 
-Yes, every run. Claude Code counts a resumed session from zero again. Since 1.5.2 Quanta Costa notices that and adds each run to the period.
+Yes, every run, and none twice. Claude Code either carries a resumed session's cost over or, after a hard stop, starts from zero again. Since 1.6.1 Quanta Costa counts each run from its own first reading, so both cases add up the same.
 
-**Example:** Monday $30, Tuesday you resume the session and work for $20. The Session row shows $20 on Tuesday, the current run. The Value row adds $30 + $20 = $50.
+**Example:** Monday $30, Tuesday you resume the session and work for $20. Whether the Session row shows $50 (carried over) or $20 (from zero), the Value row adds $30 + $20 = $50.
 
 A session that runs across your billing day counts toward each period with the work done in it.
 
@@ -208,7 +218,7 @@ $300.00 × 0.89238 = €267.71, and €267.71 ÷ €180.00 = 1.5.
 
 ### How far back does the ledger go?
 
-It keeps the current and the two previous periods. Older periods drop out automatically, so the file stays tiny.
+It keeps the current and the two previous periods. Older periods drop out automatically, so the files stay tiny.
 
 ---
 
@@ -240,7 +250,7 @@ No. Shown notices are remembered in the shared file, so each one appears once, i
 Press **h** or click **Help** at the end of the Session row. It explains every number in one line per topic, says whether your costs are real, and ends with the active settings:
 
 ```
-Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.6.0
+Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.6.1
 ```
 
 That last line is the quickest way to check which version runs and whether your settings arrived.
@@ -339,12 +349,12 @@ No. It makes no network calls. All numbers come from Claude Code itself through 
 
 ### What does it write and read on my disk?
 
-- **Writes** one small file, `~/.claude/quanta-costa/ledger.json`, and a backup copy of it, `ledger.backup.json`, at most every ten minutes: the cost per session id for the last three periods, and which notices were shown. No prompts, no code, no file names.
+- **Writes** two small files in `~/.claude/quanta-costa/`, each with a backup copy written at most every ten minutes. `value.json`: for the last three periods, per session id and run, the first and the highest cost reading, and the moment counting began. `ledger.json`: which notices were shown, and the amounts versions before 1.6.1 booked. No prompts, no code, no file names.
+- **Reads** those files, and its own entry in `~/.claude/settings.json` when Claude Code hands over no settings. Nothing else.
 
 ### My computer crashed. Is the Value total gone?
 
 No. A crash can leave a file that was just being written empty. Since 1.5.4 Quanta Costa keeps a second copy that is written at most every ten minutes, so it has long reached the disk, and it reads whatever of both is intact. You lose at most the last minutes, never the period. A damaged store of Claude Code's own no longer stops the booking either.
-- **Reads** that file, and its own entry in `~/.claude/settings.json` when Claude Code hands over no settings. Nothing else.
 
 ---
 
@@ -353,6 +363,12 @@ No. A crash can leave a file that was just being written empty. Since 1.5.4 Quan
 ### I only see two rows and dollars instead of euros.
 
 Your settings did not arrive. The Claude desktop app loads a plugin installed from a local folder under the name `quanta-costa@inline`, while `claude plugin configure` stores the options under `quanta-costa@<marketplace>`. Since 1.3.2 Quanta Costa looks up its own entry in `~/.claude/settings.json` under any of its names. Update to the latest version, then check the last line of the help.
+
+### Value was far higher than my sessions cost (1.5.2 to 1.6.0).
+
+Fixed in 1.6.1. All sessions write the same file. When one of them wrote back what it had read a moment earlier, a session could count its latest cost a second time. With many sessions open at once, Value could reach twice the real amount or more. Since 1.6.1 each run keeps only its own first and highest reading, so an old copy can delay a number but never count it twice.
+
+The amounts booked before the update stay as they were. To start clean, delete `ledger.json` and `ledger.backup.json` in `~/.claude/quanta-costa/` after updating: Value then counts from that moment and says since when.
 
 ### Different windows showed different Value amounts.
 

@@ -6,10 +6,13 @@ export type Snapshot = {
   baseUsd: number
   tokens: number
   baseTokens: number
+  // What the period's other runs (and amounts from before 1.6.1) add up to.
   othersUsd: number
-  // This session's amount booked to the period, and the cost reading it was booked at.
-  ownUsd: number
-  ownReading: number | null
+  // This run's first and highest reading in the period: its cost is the difference.
+  ownFirst: number | null
+  ownTop: number
+  // When counting began in this period, if known.
+  since: number | null
   now: number
 }
 
