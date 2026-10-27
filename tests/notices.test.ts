@@ -29,7 +29,7 @@ test('Warns once at 80% and once more at 90% of the week', async ($, on) => {
   expect(toasts).toEqual([])
   await measure(82)
   expect(toasts).toHaveLength(1)
-  expect(toasts[0]).toMatch(/^Quanta Costa: 82% of your weekly limit used, it resets Oct 12\./)
+  expect(toasts[0]).toMatch(/^Quanta Costa: 82% of your weekly limit used, it resets Mon \d\d:\d\d\./)
   await measure(85)
   expect(toasts).toHaveLength(1)
   await measure(91)
@@ -65,5 +65,5 @@ test(
 test('German notices', { options: { language: 'de' } }, async ($, on) => {
   const toasts = world(on)
   await $.session.measure({ context: { window: 200_000 }, rateLimits: week(82), cost: { usd: 1 }, changed: ['rateLimits'] })
-  expect(toasts[0]).toMatch(/^Quanta Costa: 82 % deines Wochenlimits verbraucht, neu ab 12\.10\./)
+  expect(toasts[0]).toMatch(/^Quanta Costa: 82 % deines Wochenlimits verbraucht, neu ab Mo \d\d:\d\d\./)
 })

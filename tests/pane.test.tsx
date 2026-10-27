@@ -86,7 +86,7 @@ test(
     expect(context).toHaveLength(1)
     expect(context[0]).toMatch(/^The person typed \/quanta-costa, most likely on their phone/)
     expect(context[0]).toMatch(
-      /\n🧾 Quanta Costa \| Period: 1\.6 of 4\.3 weeks gone · 2\.7 wk left · renews in 19 days \| Week: 42% used · 58% free · on track \(resets Oct 12\) \| Session: 0 tokens · €4\.42 · last prompt €4\.42 · 0 tokens \| Value: €4\.42 API value since Oct 10 vs €180\.00 plan \(0\.0×\)$/,
+      /\n🧾 Quanta Costa \| Period: 1\.6 of 4\.3 weeks gone · 2\.7 wk left · renews in 19 days \| Week: 42% used · 58% free · on track \(resets Mon 12:00\) \| Session: 0 tokens · €4\.42 · last prompt €4\.42 · 0 tokens \| Value: €4\.42 API value since Oct 10 vs €180\.00 plan \(0\.0×\)$/,
     )
 
     // Any other prompt goes on untouched.

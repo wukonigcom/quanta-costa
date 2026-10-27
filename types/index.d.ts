@@ -13,6 +13,9 @@ export type Snapshot = {
   ownTop: number
   // When counting began in this period, if known.
   since: number | null
+  // The value added this week and the weekly percentage points used since Quanta Costa first saw the week.
+  weekUsd: number | null
+  weekPoints: number
   now: number
 }
 

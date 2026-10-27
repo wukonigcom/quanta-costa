@@ -10,16 +10,17 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 
 ```
 🧾 Period   ████░░░░░░░░  1.4 of 4.3 weeks gone · 2.9 wk left · renews in 20 days
-   Week     ██████░░░░░░  50% used · 50% free · on track (resets Oct 12)
+   Week     ██████░░░░░░  50% used · 50% free · on track (resets Mon 12:00)
    Session  3.3M tokens · $4.95 · last prompt $0.07 · 85k tokens   [Help]
    Value    ████████████  $412.30 API value vs $200.00 plan (2.1×)
 ```
 
 ## Features
 
-- **Weekly limit bar** for Claude Pro and Max: how much is used, how much is free, when it resets. Green, yellow from 70%, red from 90%. Without a weekly limit it shows a spend limit or the 5-hour window instead.
+- **Weekly limit bar** for Claude Pro and Max: how much is used, how much is free, when it resets (weekday and time, as in the Claude app). Green, yellow from 70%, red from 90%. Without a weekly limit it shows a spend limit or the 5-hour window instead.
 - **Pace forecast**: know before you hit the limit. "on track" if your week lasts until the reset, otherwise "runs out Fri 14:00".
 - **Plan value**: the API value of all your sessions this period against your plan price, e.g. `2.1×`. Above 1× your subscription has paid for itself. If counting began after the period started, the row says since when.
+- **Value per percent of your week**: how much API value one percent of your weekly limit has bought this week, e.g. `1% ≈ $25.00 value`. It shows what a whole week of your plan is worth.
 - **Billing period bar**: how many weeks of the month you paid for are gone and how many are left.
 - **Session cost** in tokens and in dollars or euros, plus the cost of your **last prompt**. Updates live after every tool call.
 - **5-hour limit warning**: the short-term window only shows up when it passes 80%, with the time it frees up again.

@@ -13,6 +13,8 @@ const EMPTY: Snapshot = {
   ownFirst: null,
   ownTop: 0,
   since: null,
+  weekUsd: null,
+  weekPoints: 0,
   now: 0,
 }
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
@@ -29,6 +31,8 @@ export const normalize = (s: Partial<Snapshot> | null | undefined): Snapshot => 
   ownFirst: typeof s?.ownFirst === 'number' && Number.isFinite(s.ownFirst) ? s.ownFirst : null,
   ownTop: num(s?.ownTop),
   since: typeof s?.since === 'number' && Number.isFinite(s.since) ? s.since : null,
+  weekUsd: typeof s?.weekUsd === 'number' && Number.isFinite(s.weekUsd) ? s.weekUsd : null,
+  weekPoints: num(s?.weekPoints),
   now: num(s?.now),
 })
 
@@ -38,7 +42,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.6.1'
+export const VERSION = '1.7.0'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -188,6 +192,10 @@ const weekdayTime = (ms: number, lang: Lang, timeZone?: string) => {
     return new Date(ms).toISOString().slice(11, 16)
   }
 }
+
+// When a limit resets: weekday and time within the coming week, as the Claude app shows it, else the date.
+export const resetText = (resetsAt: number, now: number, lang: Lang) =>
+  resetsAt - now < 7 * DAY ? weekdayTime(resetsAt, lang) : shortDate(resetsAt, lang)
 
 // Extrapolates the weekly usage so far: null while too early to tell, else whether it
 // lasts until the reset or when it would run out.
@@ -453,7 +461,7 @@ let currentRun: Run = NO_RUN
 
 // Books this run's reading to the current period and returns what the period's other runs and
 // the amounts from before 1.6.1 add up to. Without a reading nothing is booked.
-const book = async ($: EngineInterface, usd: number | null, key: string) => {
+const book = async ($: EngineInterface, usd: number | null, key: string, limits: Limit[]) => {
   const sid = await $.session.id()
   const now = await $.clock.now()
   const shared = await loadShared($)
@@ -480,13 +488,87 @@ const book = async ($: EngineInterface, usd: number | null, key: string) => {
   const next: ValueDoc = { since: latestPeriods(since), counts }
   await storeSet($, VALUE, next)
   await writeWithBackup($, VALUE_FILE, VALUE_BACKUP_FILE, next)
+  const totals: Record<string, number> = {}
+  for (const period of new Set([...Object.keys(legacy), ...Object.keys(counts)])) {
+    totals[period] = periodValue(legacy[period], counts[period])
+  }
   const own = run.periods[key]
   return {
     othersUsd: periodValue(legacy[key], counts[key], { sid, run: run.id }),
     ownFirst: own ? own[0] : null,
     ownTop: own ? own[1] : 0,
     since: since[key] ?? null,
+    ...(await weekSoFar($, limits, totals)),
   }
+}
+
+// week.json: the value of every period and the weekly percentage when Quanta Costa first saw the
+// current week. What was added since, divided by the percentage points used since, is what one
+// percent of the week is worth. Its own file: versions before 1.7.0 rewrite value.json without it.
+type WeekBase = { resetsAt: number; percent: number; values: Record<string, number> }
+const WEEK_FILE = 'week.json'
+const WEEK_BACKUP_FILE = 'week.backup.json'
+const WEEK_BASE = 'weekBase'
+// Shown from 3 points on, so a first reading does not swing the number.
+const WEEK_MIN_POINTS = 3
+
+const isWeekBase = (w: unknown): w is WeekBase => {
+  const b = w as Partial<WeekBase> | null | undefined
+  return (
+    !!b &&
+    typeof b.resetsAt === 'number' &&
+    Number.isFinite(b.resetsAt) &&
+    typeof b.percent === 'number' &&
+    Number.isFinite(b.percent) &&
+    !!b.values &&
+    typeof b.values === 'object'
+  )
+}
+
+// Two copies as one: the later week; within one week the earlier look, with the lower percentage.
+export const mergeWeekBase = (a: unknown, b: unknown): WeekBase | undefined => {
+  if (!isWeekBase(a)) return isWeekBase(b) ? b : undefined
+  if (!isWeekBase(b)) return a
+  if (!isSameWeek(a.resetsAt, b.resetsAt)) return a.resetsAt > b.resetsAt ? a : b
+  if (a.percent !== b.percent) return a.percent < b.percent ? a : b
+  const values: Record<string, number> = { ...b.values }
+  for (const [period, usd] of Object.entries(a.values)) values[period] = Math.min(values[period] ?? num(usd), num(usd))
+  return { ...a, values }
+}
+
+// What the week added: per period the value now less the value at the first look.
+export const weekAdded = (base: WeekBase, totals: Record<string, number>) =>
+  Object.entries(totals).reduce((sum, [period, usd]) => sum + Math.max(0, usd - num(base.values[period])), 0)
+
+// API value per percentage point of the weekly limit, once enough of the week is used.
+export const perPercent = (weekUsd: number | null, points: number) =>
+  weekUsd !== null && points >= WEEK_MIN_POINTS && weekUsd > 0 ? weekUsd / points : null
+
+const loadWeekBase = async ($: EngineInterface) => {
+  const dir = await configDir($)
+  let base = mergeWeekBase(await storeGet($, WEEK_BASE), undefined)
+  if (dir) {
+    base = mergeWeekBase(base, await readJson($, `${dir}/quanta-costa/${WEEK_FILE}`))
+    base = mergeWeekBase(base, await readJson($, `${dir}/quanta-costa/${WEEK_BACKUP_FILE}`))
+  }
+  return base
+}
+
+// The week so far: added value and percentage points since the first look at this week.
+const weekSoFar = async ($: EngineInterface, limits: Limit[], totals: Record<string, number>) => {
+  const week = limits.find(l => l.kind === 'seven_day')
+  if (!week?.resetsAt) return { weekUsd: null, weekPoints: 0 }
+  const resetsAt = Date.parse(week.resetsAt)
+  let base = await loadWeekBase($)
+  if (base && !isSameWeek(base.resetsAt, resetsAt) && base.resetsAt > resetsAt) return { weekUsd: null, weekPoints: 0 }
+  const first: WeekBase = { resetsAt, percent: week.percentUsed, values: totals }
+  const merged = mergeWeekBase(base, first) as WeekBase
+  if (!base || JSON.stringify(merged) !== JSON.stringify(base)) {
+    await storeSet($, WEEK_BASE, merged)
+    await writeWithBackup($, WEEK_FILE, WEEK_BACKUP_FILE, merged)
+  }
+  base = merged
+  return { weekUsd: weekAdded(base, totals), weekPoints: Math.max(0, week.percentUsed - base.percent) }
 }
 
 // One booking at a time: two at once, at the very start, would each begin a run of their own.
@@ -501,9 +583,9 @@ const oneAtATime = <T,>(task: () => Promise<T>): Promise<T> => {
 const bookPeriod = ($: EngineInterface, planPrice: number, billingDay: number) =>
   oneAtATime(async () => {
     if (planPrice <= 0) return
-    const { usd } = normalize(await read($, snap))
+    const { usd, limits } = normalize(await read($, snap))
     const now = await $.clock.now()
-    const booked = await book($, usd, periodKey(now, billingDay))
+    const booked = await book($, usd, periodKey(now, billingDay), limits)
     await update($, snap, s => ({ ...normalize(s), ...booked }))
   })
 
@@ -525,6 +607,7 @@ type Texts = {
   onTrack: string
   runsOut: (when: string) => string
   resets: (date: string) => string
+  perPercent: (value: string) => string
   noReading: string
   sessionMain: (tokens: string, cost: string) => string
   sessionLast: (cost: string, tokens: string) => string
@@ -542,6 +625,7 @@ type Texts = {
   helpTokens: string
   helpLast: string
   helpPace: string
+  helpPerPercent: string
   helpValue: string
   helpEuro: (rate: string) => string
   helpNotices: string
@@ -564,6 +648,7 @@ const TEXTS: Record<Lang, Texts> = {
     onTrack: '· on track',
     runsOut: when => `· runs out ${when}`,
     resets: date => `(resets ${date})`,
+    perPercent: value => `· 1% ≈ ${value} value`,
     noReading: 'Week: no reading yet, it appears with the next reply.',
     sessionMain: (tokens, cost) => `${tokens} tokens · ${cost}`,
     sessionLast: (cost, tokens) => `· last prompt ${cost} · ${tokens} tokens`,
@@ -587,6 +672,8 @@ const TEXTS: Record<Lang, Texts> = {
     helpTokens:
       "Tokens: everything the model read and wrote, cache included, counted since Quanta Costa started. The cost is Claude Code's own figure for this session, as in /cost; a resumed session can carry its earlier cost over.",
     helpLast: 'Last prompt: everything since your last prompt.',
+    helpPerPercent:
+      '1% ≈: the API value one percent of your weekly limit has bought this week, from the sessions where Quanta Costa ran. It shows once 3% more of the week are used. Chats on claude.ai and other devices use the limit too, so one percent is worth at least that much.',
     helpPace:
       'Pace: Quanta Costa extrapolates your usage so far this week. "on track" means it lasts until the reset, otherwise it shows when it would run out.',
     helpValue:
@@ -615,6 +702,7 @@ const TEXTS: Record<Lang, Texts> = {
     onTrack: '· im Plan',
     runsOut: when => `· leer ab ${when}`,
     resets: date => `(neu ab ${date})`,
+    perPercent: value => `· 1 % ≈ ${value} Wert`,
     noReading: 'Woche: noch keine Messung, kommt mit der nächsten Antwort.',
     sessionMain: (tokens, cost) => `${tokens} Tokens · ${cost}`,
     sessionLast: (cost, tokens) => `· zuletzt ${cost} · ${tokens} Tokens`,
@@ -638,6 +726,8 @@ const TEXTS: Record<Lang, Texts> = {
     helpTokens:
       'Tokens: alles, was das Modell gelesen und geschrieben hat, inklusive Cache. Gezählt ab dem Start von Quanta Costa. Der Betrag ist Claude Codes eigene Zahl für diese Sitzung, wie bei /cost; eine fortgesetzte Sitzung kann ihre früheren Kosten mitbringen.',
     helpLast: 'Zuletzt: alles seit deinem letzten Prompt.',
+    helpPerPercent:
+      '1 % ≈: der API-Wert, den ein Prozent deines Wochenlimits diese Woche gebracht hat, aus den Sitzungen, in denen Quanta Costa lief. Erscheint, sobald 3 % mehr der Woche verbraucht sind. Chats auf claude.ai und andere Geräte verbrauchen das Limit mit, ein Prozent ist also mindestens so viel wert.',
     helpPace:
       'Tempo: Quanta Costa rechnet deinen bisherigen Wochenverbrauch hoch. „im Plan" heißt, es reicht bis zum Reset. Sonst steht da, wann das Kontingent leer wäre.',
     helpValue:
@@ -705,7 +795,7 @@ const notify = async ($: EngineInterface, o: NoticeOptions) => {
       toasts.push(
         t.warnWeek(
           pct(week.percentUsed, o.lang),
-          shortDate(resetsAt, o.lang),
+          resetText(resetsAt, now, o.lang),
           forecast && !forecast.isOnTrack ? weekdayTime(forecast.runsOutAt, o.lang) : undefined,
         ),
       )
@@ -824,6 +914,9 @@ export const figures = (s: Snapshot, cfg: Settings, now: number) => {
   // The other runs, plus this run's cost up to the live reading.
   const ownUsd = s.ownFirst === null ? 0 : Math.max(0, Math.max(s.ownTop, s.usd ?? 0) - s.ownFirst)
   const periodUsd = s.othersUsd + ownUsd
+  // This run's live reading moves the week on too.
+  const ownSinceBooked = s.ownFirst === null ? 0 : Math.max(0, (s.usd ?? 0) - s.ownTop)
+  const weekUsd = s.weekUsd === null ? null : s.weekUsd + ownSinceBooked
   const planUsd = currency === 'EUR' ? planPrice / eurRate : planPrice
   return {
     week,
@@ -838,6 +931,7 @@ export const figures = (s: Snapshot, cfg: Settings, now: number) => {
     planUsd,
     valueRatio: planPrice > 0 ? periodUsd / planUsd : null,
     since: countedSince(s.since, now, billingDay),
+    perPercent: week?.kind === 'seven_day' ? perPercent(weekUsd, s.weekPoints) : null,
   }
 }
 
@@ -856,7 +950,8 @@ export const summaryText = (s: Snapshot, cfg: Settings, now: number): string => 
     const free = pct(Math.max(0, 100 - Math.round(f.week.percentUsed)), lang)
     const parts = [`${t.names[f.week.kind] ?? f.week.kind}: ${t.weekLine(pct(f.week.percentUsed, lang), free)}`]
     if (f.forecast) parts.push(f.forecast.isOnTrack ? t.onTrack : t.runsOut(weekdayTime(f.forecast.runsOutAt, lang)))
-    if (f.week.resetsAt) parts.push(t.resets(shortDate(Date.parse(f.week.resetsAt), lang)))
+    if (f.week.resetsAt) parts.push(t.resets(resetText(Date.parse(f.week.resetsAt), now, lang)))
+    if (f.perPercent !== null) parts.push(t.perPercent(money(f.perPercent, currency, eurRate, lang)))
     lines.push(parts.join(' '))
   } else {
     lines.push(t.noReading)
@@ -993,7 +1088,7 @@ export const register: Register = (on, options) => {
     const isOpen = await read($, isHelpOpen)
     const now = s.now || (await $.clock.now())
 
-    const { week, short, isShortTight, isSubscription, lastUsd, lastTokens, period, forecast, periodUsd, planUsd, valueRatio, since } =
+    const { week, short, isShortTight, isSubscription, lastUsd, lastTokens, period, forecast, periodUsd, planUsd, valueRatio, since, perPercent } =
       figures(s, cfg, now)
 
     const off = lang === 'de' ? 'aus' : 'off'
@@ -1062,7 +1157,8 @@ export const register: Register = (on, options) => {
                 {forecast.isOnTrack ? t.onTrack : t.runsOut(weekdayTime(forecast.runsOutAt, lang))}
               </Text>
             ) : null}
-            {week.resetsAt ? <Text>{t.resets(shortDate(Date.parse(week.resetsAt), lang))}</Text> : null}
+            {week.resetsAt ? <Text>{t.resets(resetText(Date.parse(week.resetsAt), now, lang))}</Text> : null}
+            {perPercent !== null ? <Text dimColor>{t.perPercent(money(perPercent, currency, eurRate, lang))}</Text> : null}
           </Box>
         ) : (
           <Text dimColor>{t.noReading}</Text>
@@ -1123,6 +1219,7 @@ export const register: Register = (on, options) => {
               helpItem(t.helpTokens),
               helpItem(t.helpLast),
               helpItem(t.helpPace),
+              valueRatio !== null ? helpItem(t.helpPerPercent) : null,
               helpItem(t.helpNotices),
               valueRatio !== null ? helpItem(t.helpValue) : null,
               currency === 'EUR' ? helpItem(t.helpEuro(dec(eurRate, 5, lang))) : null,

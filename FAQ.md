@@ -28,7 +28,7 @@ All examples below use the same moment: **Saturday, October 10, 12:00**, a plan 
 
 ```
 🧾 Period   ████░░░░░░░░  1.6 of 4.3 weeks gone · 2.7 wk left · renews in 19 days
-   Week     █████░░░░░░░  42% used · 58% free · on track (resets Oct 12)
+   Week     █████░░░░░░░  42% used · 58% free · on track (resets Mon 12:00)
    Session  3.3M tokens · $4.95 · last prompt $0.07 · 85k tokens   [Help]
    Value    ████████████  $412.30 API value vs $200.00 plan (2.1×)
 ```
@@ -82,10 +82,10 @@ Because your allowance renews weekly. A month has about 4.3 weeks, and "2.7 week
 
 ### What does the Week row show?
 
-How much of your weekly allowance is used and free, a pace forecast, and when the week resets.
+How much of your weekly allowance is used and free, a pace forecast, and when the week resets. The reset shows weekday and time, as the Claude app does; a reset more than a week away shows its date.
 
 ```
-Week     █████░░░░░░░  42% used · 58% free · on track (resets Oct 12)
+Week     █████░░░░░░░  42% used · 58% free · on track (resets Mon 12:00)
 ```
 
 The bar is green below 70%, yellow from 70% and red from 90%.
@@ -101,16 +101,28 @@ Quanta Costa takes your usage so far this week and extrapolates it: if you keep 
 **Example 1, on track:** the week started Monday October 5 at 12:00. Now it is Saturday 12:00, 5 days in, and 42% is used. At that rate 100% would come after 11.9 days, long after the reset on day 7:
 
 ```
-Week     █████░░░░░░░  42% used · 58% free · on track (resets Oct 12)
+Week     █████░░░░░░░  42% used · 58% free · on track (resets Mon 12:00)
 ```
 
 **Example 2, running out:** same week, but it is Wednesday October 7 at 12:00, 2 days in, and 60% is already used. At that rate 100% comes after 3.3 days, on Thursday at 20:00:
 
 ```
-Week     ███████░░░░░  60% used · 40% free · runs out Thu 20:00 (resets Oct 12)
+Week     ███████░░░░░  60% used · 40% free · runs out Thu 20:00 (resets Mon 12:00)
 ```
 
 The forecast stays hidden during the first 3 hours of a week and below 2% usage, so it never guesses from too little data.
+
+### What does "1% ≈ $25.00 value" mean?
+
+It is how much API value one percent of your weekly limit has bought this week. The first time Quanta Costa sees a new week, it notes the value of all your sessions and how much of the week is used. From then on it divides the value added since by the percentage points used since.
+
+**Example:** the week started Monday October 5 at 12:00. When Quanta Costa first saw it, 2% was used. Now 42% is used, that is 40 points more, and your sessions have added $1,000.00 of API value since. One percent is worth $1,000.00 ÷ 40 = $25.00:
+
+```
+Week     █████░░░░░░░  42% used · 58% free · on track (resets Mon 12:00) · 1% ≈ $25.00 value
+```
+
+At that rate a whole week of your plan is worth about $2,500. The number appears once 3 more points of the week are used, so a first reading does not make it swing. It needs `planPrice`, like the Value row. Chats on claude.ai and other devices use the weekly limit too, but only sessions where Quanta Costa ran add value, so one percent is worth at least the amount shown.
 
 ### What if my plan has no weekly limit?
 
@@ -230,8 +242,8 @@ Four, each shown once as a short message for 12 seconds:
 
 | When | Example |
 | --- | --- |
-| The week passes 80% | `Quanta Costa: 82% of your weekly limit used, it resets Oct 12. At this pace it runs out Sun 18:00.` |
-| The week passes 90% | `Quanta Costa: 91% of your weekly limit used, it resets Oct 12.` |
+| The week passes 80% | `Quanta Costa: 82% of your weekly limit used, it resets Mon 12:00. At this pace it runs out Sun 18:00.` |
+| The week passes 90% | `Quanta Costa: 91% of your weekly limit used, it resets Mon 12:00.` |
 | A fresh week starts | `Quanta Costa: fresh week, your weekly limit has reset (100% free).` |
 | A billing period ends | `Quanta Costa: last period Sep 29 to Oct 29: $412.30 API value, 2.1× your plan.` |
 
@@ -250,7 +262,7 @@ No. Shown notices are remembered in the shared file, so each one appears once, i
 Press **h** or click **Help** at the end of the Session row. It explains every number in one line per topic, says whether your costs are real, and ends with the active settings:
 
 ```
-Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.6.1
+Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.7.0
 ```
 
 That last line is the quickest way to check which version runs and whether your settings arrived.
@@ -262,7 +274,7 @@ Yes, as one line of text. The Claude mobile app shows no band and no pane, and i
 **Example:** on your phone, open the Claude app, go to **Code**, pick the session running on your computer and send `/quanta-costa`. Claude answers:
 
 ```
-🧾 Quanta Costa | Period: 1.6 of 4.3 weeks gone · 2.7 wk left · renews in 19 days | Week: 42% used · 58% free · on track (resets Oct 12) | Session: 3.3M tokens · $4.95 · last prompt $0.07 · 85k tokens | Value: $412.30 API value vs $200.00 plan (2.1×)
+🧾 Quanta Costa | Period: 1.6 of 4.3 weeks gone · 2.7 wk left · renews in 19 days | Week: 42% used · 58% free · on track (resets Mon 12:00) | Session: 3.3M tokens · $4.95 · last prompt $0.07 · 85k tokens | Value: $412.30 API value vs $200.00 plan (2.1×)
 ```
 
 That answer is a short normal reply, so it counts toward your usage like any other. Your computer has to be on, since the session runs there. In the terminal and the desktop app, `/quanta-costa` opens the view in a pane and prints the same line, without asking Claude.
@@ -281,7 +293,7 @@ Set `language` to `de`. Labels, help, notices, numbers and dates switch together
 
 ```
 🧾 Periode  ████░░░░░░░░  1,6 v. 4,3 Wochen vorbei · 2,7 W offen · noch 19 Tage
-   Woche    █████░░░░░░░  42 % verbraucht · 58 % frei · im Plan (neu ab 12.10.)
+   Woche    █████░░░░░░░  42 % verbraucht · 58 % frei · im Plan (neu ab Mo 12:00)
    Sitzung  3,3 Mio Tokens · 4,42 € · zuletzt 0,06 € · 85 Tsd. Tokens   [Hilfe]
    Wert     ████████████  267,71 € API-Wert vs. 180,00 € Abo (1,5×)
 ```
@@ -349,7 +361,7 @@ No. It makes no network calls. All numbers come from Claude Code itself through 
 
 ### What does it write and read on my disk?
 
-- **Writes** two small files in `~/.claude/quanta-costa/`, each with a backup copy written at most every ten minutes. `value.json`: for the last three periods, per session id and run, the first and the highest cost reading, and the moment counting began. `ledger.json`: which notices were shown, and the amounts versions before 1.6.1 booked. No prompts, no code, no file names.
+- **Writes** three small files in `~/.claude/quanta-costa/`, each with a backup copy written at most every ten minutes. `value.json`: for the last three periods, per session id and run, the first and the highest cost reading, and the moment counting began. `week.json`: the value per period and how much of the week was used when Quanta Costa first saw the current week. `ledger.json`: which notices were shown, and the amounts versions before 1.6.1 booked. No prompts, no code, no file names.
 - **Reads** those files, and its own entry in `~/.claude/settings.json` when Claude Code hands over no settings. Nothing else.
 
 ### My computer crashed. Is the Value total gone?

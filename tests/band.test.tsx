@@ -52,7 +52,7 @@ test(
       ).toBeDefined()
       expect(await ui.find({ text: /^42% used · 58% free$/ })).toBeDefined()
       expect(await ui.find({ text: /^· on track$/ })).toBeDefined()
-      expect(await ui.find({ text: /^\(resets Oct 12\)$/ })).toBeDefined()
+      expect(await ui.find({ text: /^\(resets Mon \d\d:\d\d\)$/ })).toBeDefined()
       expect(await ui.find({ text: /€8\.92/ })).toBeDefined()
       expect(await ui.find({ text: /5-hour limit 85% used · resets in 6h 0m/ })).toBeDefined()
       expect(await ui.find({ text: /hypothetical/ })).toBeUndefined()
@@ -62,7 +62,7 @@ test(
       expect(await ui.find({ text: /this period runs Sep 29 to Oct 29/ })).toBeDefined()
       expect(await ui.find({ key: 'helpbox' })).toBeDefined()
       expect(
-        await ui.find({ text: /^Active settings: language en · billing day 29 · EUR · plan €5\.00 · version 1\.6\.1$/ }),
+        await ui.find({ text: /^Active settings: language en · billing day 29 · EUR · plan €5\.00 · version 1\.7\.0$/ }),
       ).toBeDefined()
 
       await ui.press({ key: 'help' })
@@ -181,7 +181,7 @@ test(
       expect(await ui.find({ text: /^1,4 v\. 4,3 Wochen vorbei · 2,9 W offen · noch 20 Tage$/ })).toBeDefined()
       expect(await ui.find({ text: /^42 % verbraucht · 58 % frei$/ })).toBeDefined()
       expect(await ui.find({ text: /^· im Plan$/ })).toBeDefined()
-      expect(await ui.find({ text: /^\(neu ab 12\.10\.\)$/ })).toBeDefined()
+      expect(await ui.find({ text: /^\(neu ab Mo \d\d:\d\d\)$/ })).toBeDefined()
       expect(await ui.find({ text: /8,92 €/ })).toBeDefined()
       expect(await ui.find({ text: /^11,60 € API-Wert vs\. 5,00 € Abo$/ })).toBeDefined()
       expect(await ui.find({ text: /^\(2,3×\)$/ })).toBeDefined()
