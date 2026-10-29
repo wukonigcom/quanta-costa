@@ -228,6 +228,18 @@ Value    ████████████  €267.71 API value vs €180.00 
 
 $300.00 × 0.89238 = €267.71, and €267.71 ÷ €180.00 = 1.5.
 
+### Where do I see the last period?
+
+When a new period starts, a notice tells you once what the period that just ended was worth. After that the same figure stays in two places: as the last topic of the help (press `h`) and as a line in the pane that `/quanta-costa` opens. On the phone it comes at the end of Claude's answer to `/quanta-costa`.
+
+**Example:** your plan renews on the 29th, it is October 30, and the period from September 29 to October 29 was worth $300.00 against a $200.00 plan:
+
+```
+Last period Sep 29 to Oct 29: $300.00 API value (1.5×)
+```
+
+If Quanta Costa only started counting during that period, the line says since when, for example `$300.00 API value since Oct 9`. The band above the prompt stays as it is.
+
 ### How far back does the ledger go?
 
 It keeps the current and the two previous periods. Older periods drop out automatically, so the files stay tiny.
@@ -262,7 +274,7 @@ No. Shown notices are remembered in the shared file, so each one appears once, i
 Press **h** or click **Help** at the end of the Session row. It explains every number in one line per topic, says whether your costs are real, and ends with the active settings:
 
 ```
-Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.7.0
+Active settings: language en · billing day 29 · EUR · plan €180.00 · version 1.7.1
 ```
 
 That last line is the quickest way to check which version runs and whether your settings arrived.

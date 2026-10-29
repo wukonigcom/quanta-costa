@@ -15,6 +15,9 @@ const EMPTY: Snapshot = {
   since: null,
   weekUsd: null,
   weekPoints: 0,
+  prevPeriod: null,
+  prevUsd: null,
+  prevSince: null,
   now: 0,
 }
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
@@ -33,6 +36,9 @@ export const normalize = (s: Partial<Snapshot> | null | undefined): Snapshot => 
   since: typeof s?.since === 'number' && Number.isFinite(s.since) ? s.since : null,
   weekUsd: typeof s?.weekUsd === 'number' && Number.isFinite(s.weekUsd) ? s.weekUsd : null,
   weekPoints: num(s?.weekPoints),
+  prevPeriod: typeof s?.prevPeriod === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.prevPeriod) ? s.prevPeriod : null,
+  prevUsd: typeof s?.prevUsd === 'number' && Number.isFinite(s.prevUsd) ? s.prevUsd : null,
+  prevSince: typeof s?.prevSince === 'number' && Number.isFinite(s.prevSince) ? s.prevSince : null,
   now: num(s?.now),
 })
 
@@ -42,7 +48,7 @@ const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.7.0'
+export const VERSION = '1.7.1'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -492,8 +498,14 @@ const book = async ($: EngineInterface, usd: number | null, key: string, limits:
   for (const period of new Set([...Object.keys(legacy), ...Object.keys(counts)])) {
     totals[period] = periodValue(legacy[period], counts[period])
   }
+  // The period before this one, for the look back that stays in the help and the pane.
+  const earlier = Object.keys(totals).filter(k => k < key).sort()
+  const lastKey = earlier[earlier.length - 1]
   const own = run.periods[key]
   return {
+    prevPeriod: lastKey ?? null,
+    prevUsd: lastKey ? (totals[lastKey] ?? null) : null,
+    prevSince: lastKey ? (since[lastKey] ?? null) : null,
     othersUsd: periodValue(legacy[key], counts[key], { sid, run: run.id }),
     ownFirst: own ? own[0] : null,
     ownTop: own ? own[1] : 0,
@@ -634,6 +646,7 @@ type Texts = {
   warnWeek: (percent: string, resets: string, runsOut?: string) => string
   freshWeek: (free: string) => string
   review: (start: string, end: string, value: string, ratio?: string) => string
+  lastPeriodLine: (start: string, end: string, value: string, ratio: string, since?: string) => string
 }
 
 const TEXTS: Record<Lang, Texts> = {
@@ -688,6 +701,8 @@ const TEXTS: Record<Lang, Texts> = {
       `Quanta Costa: ${percent} of your weekly limit used, it resets ${resets}.` +
       (runsOut ? ` At this pace it runs out ${runsOut}.` : ''),
     freshWeek: free => `Quanta Costa: fresh week, your weekly limit has reset (${free} free).`,
+    lastPeriodLine: (start, end, value, ratio, since) =>
+      `Last period ${start} to ${end}: ${value} API value${since ? ` since ${since}` : ''} (${ratio}×)`,
     review: (start, end, value, ratio) =>
       `Quanta Costa: last period ${start} to ${end}: ${value} API value` + (ratio ? `, ${ratio}× your plan.` : '.'),
   },
@@ -742,6 +757,8 @@ const TEXTS: Record<Lang, Texts> = {
       `Quanta Costa: ${percent} deines Wochenlimits verbraucht, neu ab ${resets}.` +
       (runsOut ? ` Bei diesem Tempo leer ab ${runsOut}.` : ''),
     freshWeek: free => `Quanta Costa: neue Woche, dein Wochenlimit ist zurückgesetzt (${free} frei).`,
+    lastPeriodLine: (start, end, value, ratio, since) =>
+      `Letzte Periode ${start} bis ${end}: ${value} API-Wert${since ? ` seit ${since}` : ''} (${ratio}×)`,
     review: (start, end, value, ratio) =>
       `Quanta Costa: letzte Periode ${start} bis ${end}: ${value} API-Wert` + (ratio ? `, ${ratio}× dein Abo.` : '.'),
   },
@@ -897,13 +914,31 @@ export const findSavedOptions = async ($: EngineInterface): Promise<Record<strin
   return null
 }
 
+// The calendar day of an instant, as "2026-10-09", in this machine's time zone.
+const localDay = (ms: number) => {
+  const { y, m, d } = localDate(ms)
+  return new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10)
+}
+
 // When counting began in this period, worth saying only when that was after the period started.
 export const countedSince = (since: number | null, now: number, billingDay: number) => {
   if (since === null) return null
   const key = periodKey(now, billingDay)
   if (periodKey(since, billingDay) !== key) return null
-  const { y, m, d } = localDate(since)
-  return new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10) > key ? since : null
+  return localDay(since) > key ? since : null
+}
+
+// The period before this one: when it ran, what it was worth, and since when it was counted.
+export const previousPeriod = (s: Snapshot, billingDay: number, planUsd: number) => {
+  if (s.prevPeriod === null || s.prevUsd === null || planUsd <= 0) return null
+  const start = Date.parse(`${s.prevPeriod}T00:00:00Z`)
+  const first = new Date(start)
+  const end =
+    billingDay >= 1 && billingDay <= 31
+      ? billingPeriod(start + DAY / 2, billingDay, 'UTC').end
+      : Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 1)
+  const since = s.prevSince !== null && localDay(s.prevSince) > s.prevPeriod ? s.prevSince : null
+  return { start, end, usd: s.prevUsd, ratio: s.prevUsd / planUsd, since }
 }
 
 // Everything the view shows, worked out once for the band, the pane and the text summary.
@@ -932,7 +967,21 @@ export const figures = (s: Snapshot, cfg: Settings, now: number) => {
     valueRatio: planPrice > 0 ? periodUsd / planUsd : null,
     since: countedSince(s.since, now, billingDay),
     perPercent: week?.kind === 'seven_day' ? perPercent(weekUsd, s.weekPoints) : null,
+    last: planPrice > 0 ? previousPeriod(s, billingDay, planUsd) : null,
   }
+}
+
+// "Last period Sep 29 to Oct 29: €6,366.48 API value since Oct 9 (35.4×)"
+const lastLine = (f: ReturnType<typeof figures>, cfg: Settings) => {
+  if (!f.last) return null
+  const { currency, eurRate, lang } = cfg
+  return TEXTS[lang].lastPeriodLine(
+    shortDate(f.last.start, lang, 'UTC'),
+    shortDate(f.last.end, lang, 'UTC'),
+    money(f.last.usd, currency, eurRate, lang),
+    dec(f.last.ratio, 1, lang),
+    f.last.since !== null ? shortDate(f.last.since, lang) : undefined,
+  )
 }
 
 // The view as one line of text, the answer where no pane can be drawn, such as the phone.
@@ -963,6 +1012,8 @@ export const summaryText = (s: Snapshot, cfg: Settings, now: number): string => 
     const since = f.since !== null ? shortDate(f.since, lang) : undefined
     const value = t.valueLine(money(f.periodUsd, currency, eurRate, lang), money(f.planUsd, currency, eurRate, lang), since)
     lines.push(`${t.value}: ${value} (${dec(f.valueRatio, 1, lang)}×)`)
+    const last = lastLine(f, cfg)
+    if (last) lines.push(last)
   }
   if (f.isShortTight && f.short) {
     const freeIn = f.short.resetsAt ? duration(Date.parse(f.short.resetsAt) - now, lang) : undefined
@@ -1088,8 +1139,10 @@ export const register: Register = (on, options) => {
     const isOpen = await read($, isHelpOpen)
     const now = s.now || (await $.clock.now())
 
+    const shown = figures(s, cfg, now)
     const { week, short, isShortTight, isSubscription, lastUsd, lastTokens, period, forecast, periodUsd, planUsd, valueRatio, since, perPercent } =
-      figures(s, cfg, now)
+      shown
+    const last = lastLine(shown, cfg)
 
     const off = lang === 'de' ? 'aus' : 'off'
 
@@ -1195,6 +1248,12 @@ export const register: Register = (on, options) => {
           </Box>
         ) : null}
 
+        {e.component === 'Pane' && last ? (
+          <Box key="last" gap={1}>
+            <Text dimColor>{last}</Text>
+          </Box>
+        ) : null}
+
         {isShortTight && short ? (
           <Text color="warning">
             {t.shortWarn(
@@ -1222,6 +1281,7 @@ export const register: Register = (on, options) => {
               valueRatio !== null ? helpItem(t.helpPerPercent) : null,
               helpItem(t.helpNotices),
               valueRatio !== null ? helpItem(t.helpValue) : null,
+              last ? helpItem(last) : null,
               currency === 'EUR' ? helpItem(t.helpEuro(dec(eurRate, 5, lang))) : null,
             ])}
             <Text>{' '}</Text>

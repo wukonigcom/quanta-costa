@@ -23,6 +23,9 @@ test('Missing or broken values fall back to safe defaults', () => {
     since: null,
     weekUsd: null,
     weekPoints: 0,
+    prevPeriod: null,
+    prevUsd: null,
+    prevSince: null,
     now: 0,
   })
   expect(normalize({ usd: Number.NaN, tokens: Number.NaN }).usd).toBe(null)

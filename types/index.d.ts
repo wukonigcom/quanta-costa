@@ -16,6 +16,10 @@ export type Snapshot = {
   // The value added this week and the weekly percentage points used since Quanta Costa first saw the week.
   weekUsd: number | null
   weekPoints: number
+  // The period before this one: its key, its value and since when it was counted.
+  prevPeriod: string | null
+  prevUsd: number | null
+  prevSince: number | null
   now: number
 }
 
