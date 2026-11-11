@@ -23,7 +23,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 - **Value per percent of your week**: how much API value one percent of your weekly limit has bought this week, e.g. `1% ≈ $25.00 value`. It shows what a whole week of your plan is worth.
 - **Billing period bar**: how many weeks of the month you paid for are gone and how many are left.
 - **Session cost** in tokens and in dollars or euros, plus the cost of your **last prompt**. Updates live after every tool call.
-- **5-hour limit warning**: the short-term window only shows up when it passes 80%, with the time it frees up again.
+- **5-hour limit warning**: on plans that still have the short-term window, it only shows up when it passes 80%, with the time it frees up again.
 - **Notices, each shown once**: when the week passes 80% and 90% (with the pace forecast), when a fresh week starts, and at the end of each billing period a look back at its API value against your plan.
 - **Built-in help**: press `h` or click Help, and it explains every number, including whether the costs are real. Its last line shows the active settings and the version. More in the [FAQ with examples](FAQ.md).
 - **Also on your phone**: send `/quanta-costa` in a session you follow in the Claude mobile app, and Claude answers with the numbers in one line. The mobile app shows no band and no pane, so Quanta Costa hands Claude the numbers to reply with. In the terminal and the desktop app, `/quanta-costa` opens the view in a pane and prints the same line.
@@ -89,7 +89,7 @@ The short answers are here. The **[full FAQ](FAQ.md)** covers every feature with
 On a Claude subscription (Pro or Max): no, they are hypothetical. Quanta Costa shows what the session would cost at API list prices, the same figure `/cost` totals. You do not pay it on top; it only counts against your weekly allowance. You only really pay for extra usage beyond your limit, if you turned it on. On an API key, Claude Code reports no subscription limits, and the help says the costs are real.
 
 **What are the weekly limit and the 5-hour limit?**
-Claude plans meter usage in two windows: a weekly allowance and a short 5-hour window. Quanta Costa shows the weekly one as a bar and only warns about the 5-hour one when it gets tight, because that is the one that usually stops you.
+Claude plans meter usage in a weekly allowance, and some plans also in a short 5-hour window. Quanta Costa shows the weekly one as a bar. It only warns about the 5-hour one when it gets tight, because then it can stop you before the week does. If your plan has no 5-hour window, the warning never shows.
 
 **How does the pace forecast work?**
 It extrapolates your usage so far in the current week: if you keep going at the same rate, when would you hit 100%? If that is after the reset, you are on track. It waits until a few hours of the week have passed, so it does not guess from too little data.

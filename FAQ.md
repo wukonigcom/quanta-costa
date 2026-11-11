@@ -134,13 +134,13 @@ The row shows the next limit Claude Code reports: a spend limit (label **Spend**
 
 ### Why don't I see the 5-hour limit?
 
-On purpose. Claude plans also meter a short 5-hour window. Quanta Costa only shows it when it gets tight, at 80% or more, because then it is the limit that stops you:
+On purpose. Some Claude plans also meter a short 5-hour window. Quanta Costa only shows it when it gets tight, at 80% or more, because then it can stop you before the weekly limit does:
 
 ```
 5-hour limit 85% used · resets in 1h 20m
 ```
 
-Below 80% the line disappears again.
+Below 80% the line disappears again. If your plan has no 5-hour window, the line never appears.
 
 ---
 
