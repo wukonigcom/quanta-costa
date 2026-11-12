@@ -17,6 +17,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 
 ## Features
 
+- **Set up in a few clicks**: at the first start the band asks five short questions: language, plan (Pro, Max, Ultra, Team or Enterprise, or an API key), currency, monthly price and billing day. Click an answer or press its number; list prices are offered to click. Change them any time with "Change plan and price" at the end of the help, or `/quanta-costa setup`.
 - **Weekly limit bar** for Claude Pro, Max and Ultra: how much is used, how much is free, when it resets (weekday and time, as in the Claude app). Green, yellow from 70%, red from 90%. Without a weekly limit it shows a spend limit or the 5-hour window instead.
 - **Pace forecast**: know before you hit the limit. "on track" if your week lasts until the reset, otherwise "runs out Fri 14:00".
 - **Plan value**: the API value of all your sessions this period against your plan price, e.g. `2.1×`. Above 1× your subscription has paid for itself. If counting began after the period started, the row says since when. The last period's value stays in the help and the pane.
@@ -28,7 +29,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 - **Built-in help**: press `h` or click Help, and it explains every number, including whether the costs are real. Its last line shows the active settings and the version. More in the [FAQ with examples](FAQ.md).
 - **Also on your phone**: send `/quanta-costa` in a session you follow in the Claude mobile app, and Claude answers with the numbers in one line. The mobile app shows no band and no pane, so Quanta Costa hands Claude the numbers to reply with. In the terminal and the desktop app, `/quanta-costa` opens the view in a pane and prints the same line.
 - **English or German**: switch the language with one setting, numbers and dates follow (`4,42 €`, `12.10.`).
-- **Private by design**: no network calls. All numbers come from Claude Code itself; the Value row keeps a small local record of cost readings in `~/.claude/quanta-costa/`, shared by all your sessions, with a backup copy written every ten minutes, so even a computer crash costs at most the last minutes. Besides those files it only reads its own entry in Claude's settings file (see FAQ).
+- **Private by design**: no network calls. All numbers come from Claude Code itself; the Value row keeps a small local record of cost readings in `~/.claude/quanta-costa/`, shared by all your sessions, with a backup copy written every ten minutes, so even a computer crash costs at most the last minutes. The setup steps keep your picks there too, in `setup.json`, until Claude Code's own settings hold them. Besides those files it only reads its own entry in Claude's settings file (see FAQ).
 
 ## Install
 
@@ -38,7 +39,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 claude plugin install quanta-costa --marketplace wukonigcom/quanta-costa --config billingDay=29 --config currency=EUR --config planPrice=180
 ```
 
-Put in your own billing day, currency (`USD` or `EUR`) and monthly plan price, or leave the `--config` parts out and set them later (see Settings).
+Put in your own billing day, currency (`USD` or `EUR`) and monthly plan price, or leave the `--config` parts out: the band then asks for them at the first start.
 
 **Or inside Claude Code:**
 
@@ -49,7 +50,7 @@ Put in your own billing day, currency (`USD` or `EUR`) and monthly plan price, o
 
 Then start a new Claude Code session. **Claude desktop app:** quit it completely (from the tray icon, closing the window is not enough) and open it again. A plugin installed for the user scope runs there too, in the Code tab.
 
-**Check:** the band appears above the prompt. Press `h`: the last line of the help shows your settings and the version.
+**Check:** the band appears above the prompt. Without settings it starts with the setup steps: click through them, or choose "Not now" to be asked again at the next start. Press `h`: the last line of the help shows your settings and the version.
 
 ### Update
 
@@ -79,7 +80,7 @@ The ledger stays in `~/.claude/quanta-costa/`; delete that folder too if you wan
 | `planPrice` | Your monthly plan price in your currency, as on your receipt. Turns on the Value row. `0` hides it. | `0` |
 | `openPane` | Opens the Quanta Costa pane beside the chat at every start. `false` keeps it closed; `/quanta-costa` still opens it. | `true` |
 
-Change them later with `/plugin configure quanta-costa` in Claude Code or `claude plugin configure quanta-costa` in a shell.
+Change them later with "Change plan and price" at the end of the help (or `/quanta-costa setup`), which walks through the setup steps again with your settings filled in. `/plugin configure quanta-costa` in Claude Code and `claude plugin configure quanta-costa` in a shell work too.
 
 ## FAQ
 

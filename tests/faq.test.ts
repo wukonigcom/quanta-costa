@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { bar, billingPeriod, duration, money, pace, perPercent, resetText, tokenText, weeks } from '../hooks/register'
+import { amountText, bar, billingPeriod, duration, money, pace, perPercent, priceChoices, resetText, tokenText, weeks } from '../hooks/register'
 
 test('The worked examples in FAQ.md add up', () => {
   const now = Date.parse('2026-10-10T10:00:00Z')
@@ -31,6 +31,9 @@ test('The worked examples in FAQ.md add up', () => {
   expect(tokenText(3_300_000, 'de')).toBe('3,3 Mio')
   expect(tokenText(85_000, 'de')).toBe('85 Tsd.')
   expect(duration(80 * 60000)).toBe('1h 20m')
+  const ultra = priceChoices('ultra', 'EUR', 0.89238)[0]
+  expect([amountText(ultra.amount, 'EUR'), amountText(ultra.usd, 'USD')]).toEqual(['€178.00', '$200.00'])
+  expect(amountText(180, 'EUR')).toBe('€180.00')
   expect((300 / (180 / 0.89238)).toFixed(1)).toBe('1.5')
   const n = billingPeriod(Date.parse('2026-11-10T10:00:00Z'), 31, 'Europe/Vienna')
   expect([new Date(n.start).toISOString().slice(0, 10), new Date(n.end).toISOString().slice(0, 10)]).toEqual(['2026-10-31', '2026-11-30'])

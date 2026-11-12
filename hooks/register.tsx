@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
+import type { ConfigRow, EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
-import type { Limit, Snapshot } from '../types'
+import type { Limit, PlanId, Setup, SetupDraft, SetupStep, Snapshot } from '../types'
 
 const EMPTY: Snapshot = {
   limits: [],
@@ -44,11 +44,13 @@ export const normalize = (s: Partial<Snapshot> | null | undefined): Snapshot => 
 
 const snap = atom({ plugin: 'quanta-costa', key: 'snap' } as const, EMPTY)
 const isHelpOpen = atom({ plugin: 'quanta-costa', key: 'isHelpOpen' } as const, false)
+const SETUP_IDLE: Setup = { step: 'idle', draft: {}, error: null }
+const setupState = atom({ plugin: 'quanta-costa', key: 'setup' } as const, SETUP_IDLE)
 
 const BAR = 12
 const LOGO = '🧾' // "Il conto, per favore!"
 const DAY = 86_400_000
-export const VERSION = '1.7.1'
+export const VERSION = '1.8.0'
 const PLUGIN = 'quanta-costa'
 // The same view in a pane, opened with /quanta-costa: panes show on every surface, the iPhone app included.
 export const PANE = 'quanta-costa'
@@ -94,13 +96,15 @@ const dec = (n: number, digits: number, lang: Lang) => {
   }
 }
 
-export const money = (usd: number | null, currency: string, eurRate: number, lang: Lang = 'en'): string => {
-  if (usd === null) return '?'
-  const isEur = currency === 'EUR'
-  const value = dec(isEur ? usd * eurRate : usd, 2, lang)
-  const sign = isEur ? '€' : '$'
+// An amount already in the currency shown: "€180.00", in German "180,00 €".
+export const amountText = (amount: number, currency: string, lang: Lang = 'en'): string => {
+  const value = dec(amount, 2, lang)
+  const sign = currency === 'EUR' ? '€' : '$'
   return lang === 'de' ? `${value} ${sign}` : `${sign}${value}`
 }
+
+export const money = (usd: number | null, currency: string, eurRate: number, lang: Lang = 'en'): string =>
+  usd === null ? '?' : amountText(currency === 'EUR' ? usd * eurRate : usd, currency, lang)
 
 export const tokenText = (n: number, lang: Lang = 'en'): string => {
   if (n >= 1_000_000) return lang === 'de' ? `${dec(n / 1_000_000, 1, lang)} Mio` : `${dec(n / 1_000_000, 1, lang)}M`
@@ -276,6 +280,128 @@ const writeWithBackup = async ($: EngineInterface, file: string, backup: string,
   backedUpAt[file] = now
   await $.fs.write(`${dir}/quanta-costa/${backup}`, text).catch(() => undefined)
 }
+
+// setup.json: what the person picked in the setup steps, and whether to stop asking. A pick wins
+// over Claude Code's settings until Claude Code's settings hold the same value, then it is dropped,
+// so a later change there counts. It keeps a pick where Claude Code refused to store it.
+const SETUP_FILE = 'setup.json'
+// In the order they are written to Claude Code's settings: the ones the numbers need first.
+export const SETUP_FIELDS = ['planPrice', 'billingDay', 'currency', 'language'] as const
+type SetupField = (typeof SETUP_FIELDS)[number]
+export type SetupDoc = { done?: boolean; plan?: PlanId } & Partial<Record<SetupField, string | number>>
+export const PLANS: PlanId[] = ['pro', 'max', 'ultra', 'team', 'api']
+
+// Only what the setup steps could have written; anything else in the file is left out.
+export const cleanSetup = (raw: Record<string, unknown> | null): SetupDoc => {
+  const doc: SetupDoc = {}
+  if (!raw) return doc
+  if (raw.done === true) doc.done = true
+  if (PLANS.includes(raw.plan as PlanId)) doc.plan = raw.plan as PlanId
+  if (raw.language === 'en' || raw.language === 'de') doc.language = raw.language
+  if (raw.currency === 'USD' || raw.currency === 'EUR') doc.currency = raw.currency
+  const price = asNumber(raw.planPrice)
+  if (price !== undefined && price >= 0) doc.planPrice = price
+  const day = asNumber(raw.billingDay)
+  if (day !== undefined && Number.isInteger(day) && day >= 0 && day <= 31) doc.billingDay = day
+  return doc
+}
+
+const loadSetup = async ($: EngineInterface): Promise<SetupDoc> => {
+  const dir = await configDir($)
+  return dir ? cleanSetup(await readJson($, `${dir}/quanta-costa/${SETUP_FILE}`)) : {}
+}
+
+const saveSetup = async ($: EngineInterface, doc: SetupDoc) => {
+  const dir = await configDir($)
+  if (dir) await $.fs.write(`${dir}/quanta-costa/${SETUP_FILE}`, JSON.stringify(doc, null, 1))
+}
+
+// The options with the picks from the setup steps on top.
+export const withSetup = (o: Record<string, unknown>, doc: SetupDoc): Record<string, unknown> => {
+  const out = { ...o }
+  for (const field of SETUP_FIELDS) if (doc[field] !== undefined) out[field] = doc[field]
+  return out
+}
+
+// The picks Claude Code's settings do not hold yet.
+export const unsynced = (doc: SetupDoc, given: Record<string, unknown>): SetupDoc => {
+  const out = { ...doc }
+  for (const field of SETUP_FIELDS) {
+    if (out[field] !== undefined && given[field] !== undefined && String(given[field]) === String(out[field])) delete out[field]
+  }
+  return out
+}
+
+// Which of this plugin's fields a settings row is: "quanta-costa.planPrice", or under another load name.
+export const fieldOf = (key: string): SetupField | undefined =>
+  SETUP_FIELDS.find(f => key === `${PLUGIN}.${f}` || (key.startsWith(`${PLUGIN}@`) && key.endsWith(`.${f}`)))
+
+// Hands the picks to Claude Code's own settings, so /config shows them. Returns the fields that went
+// in. Claude Code may reload the plugin after a change; setup.json holds every pick by then.
+const writeConfig = async ($: EngineInterface, values: Record<SetupField, string | number>) => {
+  const rows = await $.config.list().catch((): ConfigRow[] => [])
+  const stored: SetupField[] = []
+  for (const field of SETUP_FIELDS) {
+    const row = rows.find(r => fieldOf(r.key) === field)
+    if (!row || row.isLocked) continue
+    if (String(row.value) === String(values[field])) {
+      stored.push(field)
+      continue
+    }
+    const result = await $.config.set({ key: row.key, value: values[field] }).catch(() => null)
+    if (result && result.deny === undefined) stored.push(field)
+  }
+  return stored
+}
+
+// The steps in order: an API key has no price and no billing day to ask for.
+export const stepsFor = (plan?: PlanId): SetupStep[] =>
+  plan === 'api' ? ['language', 'plan', 'currency', 'review'] : ['language', 'plan', 'currency', 'price', 'day', 'review']
+
+export const isAsking = (step: Setup['step']): step is SetupStep => step !== 'idle' && step !== 'closed'
+
+// A pick moves on to the next step.
+export const advance = (s: Setup, pick: SetupDraft): Setup => {
+  const draft = { ...s.draft, ...pick }
+  const steps = stepsFor(draft.plan)
+  const at = steps.indexOf(s.step as SetupStep)
+  return { step: steps[Math.min(at + 1, steps.length - 1)] ?? 'review', draft, error: null }
+}
+
+export const goBack = (s: Setup): Setup => {
+  const steps = stepsFor(s.draft.plan)
+  const at = steps.indexOf(s.step as SetupStep)
+  return { ...s, step: steps[Math.max(0, at - 1)] ?? 'language', error: null }
+}
+
+// Monthly list prices in US dollars before tax, as claude.com/pricing showed them on 2026-11-12;
+// Pro's second price is its yearly plan per month. Team and Enterprise prices depend on the seats.
+const LIST_PRICES: Partial<Record<PlanId, number[]>> = { pro: [20, 17], max: [100], ultra: [200] }
+
+export type PriceChoice = { amount: number; usd: number; kind: 'list' | 'yearly' | 'converted' }
+
+// What the price step offers to click. Euros: the dollar list price converted, rounded, the
+// monthly one alone, since the price on a euro receipt is not published.
+export const priceChoices = (plan: PlanId | undefined, currency: 'USD' | 'EUR', eurRate: number): PriceChoice[] => {
+  const prices = (plan && LIST_PRICES[plan]) || []
+  if (currency === 'EUR') return prices.slice(0, 1).map(usd => ({ amount: Math.round(usd * eurRate), usd, kind: 'converted' }))
+  return prices.map((usd, i) => ({ amount: usd, usd, kind: i === 0 ? 'list' : 'yearly' }))
+}
+
+// "180", "17.50", "17,50", "€ 180": an amount above 0, or null.
+export const parseAmount = (text: string): number | null => {
+  const cleaned = text.replace(/[^\d.,]/g, '').replace(',', '.')
+  const n = Number(cleaned)
+  return cleaned !== '' && Number.isFinite(n) && n > 0 && n < 100_000 ? Math.round(n * 100) / 100 : null
+}
+
+// "29" or "29.": a day of the month, or null.
+export const parseDay = (text: string): number | null => {
+  const n = Number(text.trim().replace(/\.$/, ''))
+  return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null
+}
+
+const LANGUAGE_NAMES: Record<Lang, string> = { en: 'English', de: 'Deutsch' }
 
 const loadShared = async ($: EngineInterface): Promise<Shared> => {
   const dir = await configDir($)
@@ -647,6 +773,35 @@ type Texts = {
   freshWeek: (free: string) => string
   review: (start: string, end: string, value: string, ratio?: string) => string
   lastPeriodLine: (start: string, end: string, value: string, ratio: string, since?: string) => string
+  setupTitle: (step: number, total: number) => string
+  setupLanguage: string
+  setupPlan: string
+  planNames: Record<PlanId, string>
+  setupCurrency: string
+  currencyNames: Record<'USD' | 'EUR', string>
+  setupPrice: (isSeat: boolean) => string
+  priceChoice: (kind: PriceChoice['kind'], amount: string, usd: string) => string
+  otherAmount: string
+  amountPlaceholder: string
+  badPrice: string
+  setupDay: string
+  dayLabel: string
+  dayPlaceholder: string
+  badDay: string
+  skipDay: string
+  setupReview: string
+  reviewPlan: (plan: string, price: string, day: number, language: string) => string
+  reviewApi: (plan: string, currency: string, language: string) => string
+  next: string
+  save: string
+  startOver: string
+  back: string
+  later: string
+  never: string
+  setupKeys: string
+  setupSaved: string
+  changeSetup: string
+  setupOpened: string
 }
 
 const TEXTS: Record<Lang, Texts> = {
@@ -673,7 +828,7 @@ const TEXTS: Record<Lang, Texts> = {
     helpPeriod: (day, start, end) =>
       `Period: your Claude subscription renews on day ${day} of each month, this period runs ${start} to ${end}. The top bar shows how many weeks of this paid month are gone and how many are left. Every new week brings a fresh weekly allowance.`,
     helpPeriodUnset:
-      'Period: set your billing day in the settings (billingDay, it is on your Anthropic receipt). A bar on top then shows how much of your paid month is gone.',
+      'Period: set your billing day with "Change plan and price" at the end of this help, or in the settings (billingDay). It is on your Anthropic receipt. A bar on top then shows how much of your paid month is gone.',
     helpWeek:
       'Week: your plan has a weekly allowance. The bar shows how much of it is used. When it is full, you wait for the reset.',
     helpFive:
@@ -705,6 +860,49 @@ const TEXTS: Record<Lang, Texts> = {
       `Last period ${start} to ${end}: ${value} API value${since ? ` since ${since}` : ''} (${ratio}×)`,
     review: (start, end, value, ratio) =>
       `Quanta Costa: last period ${start} to ${end}: ${value} API value` + (ratio ? `, ${ratio}× your plan.` : '.'),
+    setupTitle: (step, total) => `Set up Quanta Costa · step ${step} of ${total}`,
+    setupLanguage: 'Language / Sprache',
+    setupPlan: 'Which Claude plan do you have?',
+    planNames: {
+      pro: 'Pro',
+      max: 'Max (was Max 5x)',
+      ultra: 'Ultra (was Max 20x)',
+      team: 'Team or Enterprise',
+      api: 'API key, no plan',
+    },
+    setupCurrency: 'Which currency is on your receipt?',
+    currencyNames: { USD: 'US dollars', EUR: 'Euros' },
+    setupPrice: isSeat =>
+      `What does your ${isSeat ? 'seat' : 'plan'} cost per month? Take the amount from your receipt.`,
+    priceChoice: (kind, amount, usd) =>
+      kind === 'list'
+        ? `${amount}, list price before tax`
+        : kind === 'yearly'
+          ? `${amount} a month on the yearly plan`
+          : `about ${amount} (list price ${usd} converted)`,
+    otherAmount: 'Other amount:',
+    amountPlaceholder: 'for example 180',
+    badPrice: 'Please type an amount above 0, for example 180 or 17.50.',
+    setupDay: 'On which day of the month does your plan renew? It is on your receipt.',
+    dayLabel: 'Day:',
+    dayPlaceholder: '1 to 31',
+    badDay: 'Please type a day from 1 to 31.',
+    skipDay: 'I do not know yet',
+    setupReview: 'Is this right?',
+    reviewPlan: (plan, price, day, language) =>
+      `${plan} · ${price} a month · ${day > 0 ? `renews on day ${day}` : 'billing day not set'} · ${language}`,
+    reviewApi: (plan, currency, language) => `${plan} · costs are real, no plan value · ${currency} · ${language}`,
+    next: 'next',
+    save: 'Save',
+    startOver: 'Start over',
+    back: 'Back',
+    later: 'Not now',
+    never: "Don't ask again",
+    setupKeys:
+      'Click a choice, or press its number while the prompt is empty. To type in a field, move to the band with ctrl+x, then tab.',
+    setupSaved: 'Quanta Costa: settings saved. You can change them any time in the help.',
+    changeSetup: 'Change plan and price',
+    setupOpened: 'Quanta Costa: the setup steps are in the band above the prompt.',
   },
   de: {
     names: { seven_day: 'Woche', spend_limit: 'Limit', five_hour: '5 Std.' },
@@ -729,7 +927,7 @@ const TEXTS: Record<Lang, Texts> = {
     helpPeriod: (day, start, end) =>
       `Periode: Dein Claude-Abo wird jeden Monat am ${day}. abgebucht, aktuell ${start} bis ${end}. Der obere Balken zeigt, wie viele Wochen dieses bezahlten Monats schon vorbei sind und wie viele noch offen. Jede neue Woche bringt ein frisches Wochenkontingent. W = Wochen.`,
     helpPeriodUnset:
-      'Periode: Trag in den Einstellungen deinen Abrechnungstag ein (billingDay, steht auf deiner Anthropic-Rechnung). Dann zeigt ein Balken ganz oben, wie viel von deinem bezahlten Monat vorbei ist.',
+      'Periode: Trag deinen Abrechnungstag über „Abo und Preis ändern“ am Ende dieser Hilfe ein, oder in den Einstellungen (billingDay). Er steht auf deiner Anthropic-Rechnung. Dann zeigt ein Balken ganz oben, wie viel von deinem bezahlten Monat vorbei ist.',
     helpWeek:
       'Woche: Dein Abo hat ein Kontingent pro Woche. Der Balken zeigt, wie viel davon schon weg ist. Ist er voll, geht erst nach dem Reset wieder etwas.',
     helpFive:
@@ -761,6 +959,49 @@ const TEXTS: Record<Lang, Texts> = {
       `Letzte Periode ${start} bis ${end}: ${value} API-Wert${since ? ` seit ${since}` : ''} (${ratio}×)`,
     review: (start, end, value, ratio) =>
       `Quanta Costa: letzte Periode ${start} bis ${end}: ${value} API-Wert` + (ratio ? `, ${ratio}× dein Abo.` : '.'),
+    setupTitle: (step, total) => `Quanta Costa einrichten · Schritt ${step} von ${total}`,
+    setupLanguage: 'Language / Sprache',
+    setupPlan: 'Welches Claude-Abo hast du?',
+    planNames: {
+      pro: 'Pro',
+      max: 'Max (früher Max 5x)',
+      ultra: 'Ultra (früher Max 20x)',
+      team: 'Team oder Enterprise',
+      api: 'API-Schlüssel, kein Abo',
+    },
+    setupCurrency: 'In welcher Währung ist deine Rechnung?',
+    currencyNames: { USD: 'US-Dollar', EUR: 'Euro' },
+    setupPrice: isSeat =>
+      `Was kostet dein ${isSeat ? 'Platz' : 'Abo'} im Monat? Nimm den Betrag von deiner Rechnung.`,
+    priceChoice: (kind, amount, usd) =>
+      kind === 'list'
+        ? `${amount}, Listenpreis ohne Steuer`
+        : kind === 'yearly'
+          ? `${amount} im Monat beim Jahresabo`
+          : `etwa ${amount} (Listenpreis ${usd} umgerechnet)`,
+    otherAmount: 'Anderer Betrag:',
+    amountPlaceholder: 'zum Beispiel 180',
+    badPrice: 'Bitte einen Betrag über 0 eingeben, zum Beispiel 180 oder 17,50.',
+    setupDay: 'An welchem Tag im Monat verlängert sich dein Abo? Er steht auf deiner Rechnung.',
+    dayLabel: 'Tag:',
+    dayPlaceholder: '1 bis 31',
+    badDay: 'Bitte einen Tag von 1 bis 31 eingeben.',
+    skipDay: 'Weiß ich noch nicht',
+    setupReview: 'Stimmt das so?',
+    reviewPlan: (plan, price, day, language) =>
+      `${plan} · ${price} im Monat · ${day > 0 ? `verlängert sich am ${day}.` : 'Abrechnungstag offen'} · ${language}`,
+    reviewApi: (plan, currency, language) => `${plan} · Kosten sind echt, kein Abo-Wert · ${currency} · ${language}`,
+    next: 'weiter',
+    save: 'Speichern',
+    startOver: 'Neu beginnen',
+    back: 'Zurück',
+    later: 'Später',
+    never: 'Nicht mehr fragen',
+    setupKeys:
+      'Klick eine Auswahl an oder drück ihre Zahl, solange die Eingabezeile leer ist. Zum Tippen in ein Feld wechsle mit Strg+X und dann Tab ins Band.',
+    setupSaved: 'Quanta Costa: Einstellungen gespeichert. Du kannst sie jederzeit in der Hilfe ändern.',
+    changeSetup: 'Abo und Preis ändern',
+    setupOpened: 'Quanta Costa: Die Einrichtung steht im Band über der Eingabezeile.',
   },
 }
 
@@ -1030,35 +1271,89 @@ const showView = async ($: EngineInterface, cfg: Settings) => {
   return summaryText(s, cfg, s.now || (await $.clock.now()))
 }
 
+// What the hooks share: the options Claude Code handed over, the picks from the setup steps, and
+// the settings both make together.
+type Ctx = { given: Record<string, unknown>; setupDoc: SetupDoc; cfg: Settings }
+
+// The setup steps again, from the help or /quanta-costa setup, with what is set now filled in.
+const openSetup = async ($: EngineInterface, ctx: Ctx) => {
+  await update($, isHelpOpen, () => false)
+  await update($, setupState, () => ({
+    step: 'language',
+    draft: {
+      language: ctx.cfg.lang,
+      plan: ctx.setupDoc.plan,
+      currency: ctx.cfg.currency,
+      planPrice: ctx.cfg.planPrice > 0 ? ctx.cfg.planPrice : undefined,
+      billingDay: ctx.cfg.billingDay > 0 ? ctx.cfg.billingDay : undefined,
+    },
+    error: null,
+  }))
+}
+
+// Save: the picks hold at once from setup.json, then go into Claude Code's own settings.
+const saveSetupPicks = async ($: EngineInterface, ctx: Ctx, draft: SetupDraft) => {
+  const isApi = draft.plan === 'api'
+  const values: Record<SetupField, string | number> = {
+    planPrice: isApi ? 0 : (draft.planPrice ?? 0),
+    billingDay: isApi ? 0 : (draft.billingDay ?? 0),
+    currency: draft.currency ?? ctx.cfg.currency,
+    language: draft.language ?? ctx.cfg.lang,
+  }
+  ctx.setupDoc = { done: true, plan: draft.plan, ...values }
+  await saveSetup($, ctx.setupDoc).catch(() => undefined)
+  ctx.cfg = toSettings(withSetup(ctx.given, ctx.setupDoc))
+  await update($, setupState, s => ({ ...s, step: 'closed', error: null }))
+  $.ui.invalidate('ui.render')
+  $.ui.toast(TEXTS[ctx.cfg.lang].setupSaved)
+  await bookPeriod($, ctx.cfg.planPrice, ctx.cfg.billingDay).catch(() => undefined)
+  const stored = await writeConfig($, values).catch((): SetupField[] => [])
+  if (stored.length === 0) return
+  for (const field of stored) ctx.given = { ...ctx.given, [field]: values[field] }
+  ctx.setupDoc = unsynced(ctx.setupDoc, ctx.given)
+  await saveSetup($, ctx.setupDoc).catch(() => undefined)
+}
+
 export const register: Register = (on, options) => {
-  let cfg = toSettings(options as Record<string, unknown>)
+  const ctx: Ctx = {
+    given: options as Record<string, unknown>,
+    setupDoc: {},
+    cfg: toSettings(options as Record<string, unknown>),
+  }
   const noticeOptions = (): NoticeOptions => ({
-    lang: cfg.lang,
-    planPrice: cfg.planPrice,
-    billingDay: cfg.billingDay,
-    currency: cfg.currency,
-    eurRate: cfg.eurRate,
+    lang: ctx.cfg.lang,
+    planPrice: ctx.cfg.planPrice,
+    billingDay: ctx.cfg.billingDay,
+    currency: ctx.cfg.currency,
+    eurRate: ctx.cfg.eurRate,
   })
 
   on('session.start', async ($, e, next) => {
-    if (isAllDefault(cfg)) {
+    if (isAllDefault(toSettings(ctx.given))) {
       const saved = await findSavedOptions($).catch(() => null)
-      if (saved) {
-        cfg = toSettings(saved)
-        $.ui.invalidate('ui.render')
-      }
+      if (saved) ctx.given = saved
+    }
+    const loaded = await loadSetup($).catch((): SetupDoc => ({}))
+    ctx.setupDoc = unsynced(loaded, ctx.given)
+    if (JSON.stringify(ctx.setupDoc) !== JSON.stringify(loaded)) await saveSetup($, ctx.setupDoc).catch(() => undefined)
+    const before = JSON.stringify(ctx.cfg)
+    ctx.cfg = toSettings(withSetup(ctx.given, ctx.setupDoc))
+    if (JSON.stringify(ctx.cfg) !== before) $.ui.invalidate('ui.render')
+    // Nothing set up yet: the setup steps show in the band, at every start until saved or turned off.
+    if (!ctx.setupDoc.done && isAllDefault(ctx.cfg)) {
+      await update($, setupState, s => (s.step === 'idle' ? { step: 'language', draft: { language: ctx.cfg.lang }, error: null } : s))
     }
     await $.command
-      .register({ name: PANE, description: TEXTS[cfg.lang].commandDescription })
+      .register({ name: PANE, description: TEXTS[ctx.cfg.lang].commandDescription })
       .catch(() => undefined)
-    if (cfg.openPane) await $.ui.open({ id: PANE, title: 'Quanta Costa' }).catch(() => undefined)
+    if (ctx.cfg.openPane) await $.ui.open({ id: PANE, title: 'Quanta Costa' }).catch(() => undefined)
     await refresh($).catch(() => undefined)
     // Loaded mid-session: "last prompt" starts at zero, not at the whole session.
     await update($, snap, s => {
       const f = normalize(s)
       return f.baseUsd === 0 ? { ...f, baseUsd: f.usd ?? 0 } : f
     })
-    await bookPeriod($, cfg.planPrice, cfg.billingDay).catch(() => undefined)
+    await bookPeriod($, ctx.cfg.planPrice, ctx.cfg.billingDay).catch(() => undefined)
     await notify($, noticeOptions()).catch(() => undefined)
     $.clock.every(60_000, () => {
       void $.clock.now().then(now => update($, snap, s => ({ ...normalize(s), now })))
@@ -1074,7 +1369,7 @@ export const register: Register = (on, options) => {
     let event = e
     if (isPaneRequest(e.text)) {
       const s = normalize(await read($, snap))
-      const line = summaryText(s, cfg, s.now || (await $.clock.now()))
+      const line = summaryText(s, ctx.cfg, s.now || (await $.clock.now()))
       event = { ...e, context: [...(e.context ?? []), phoneReply(line)] }
     }
     const usage = await $.session.usage()
@@ -1116,7 +1411,7 @@ export const register: Register = (on, options) => {
       usd: e.cost?.usd ?? normalize(s).usd,
       now,
     }))
-    await bookPeriod($, cfg.planPrice, cfg.billingDay).catch(() => undefined)
+    await bookPeriod($, ctx.cfg.planPrice, ctx.cfg.billingDay).catch(() => undefined)
     await notify($, noticeOptions()).catch(() => undefined)
     return next(e)
   })
@@ -1126,23 +1421,164 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: PANE }, async $ => ({ text: await showView($, cfg) }))
+  on('command.run', { command: PANE }, async ($, e) => {
+    if (/^\s*setup\s*$/i.test(e.args)) {
+      await openSetup($, ctx)
+      return { text: TEXTS[ctx.cfg.lang].setupOpened }
+    }
+    return { text: await showView($, ctx.cfg) }
+  })
+
+  // A change the person makes in /config wins over a pick from the setup steps: that pick is dropped.
+  on('config.set', async ($, e, next) => {
+    const result = await next(e)
+    const field = fieldOf(e.key)
+    if (field && result.deny === undefined && ctx.setupDoc[field] !== undefined) {
+      const { [field]: _dropped, ...rest } = ctx.setupDoc
+      ctx.setupDoc = rest
+      await saveSetup($, ctx.setupDoc).catch(() => undefined)
+    }
+    return result
+  })
 
   on('ui.render', { component: ['AbovePrompt', 'Pane'] }, async ($, e, next) => {
     if (e.component === 'Pane' && e.requestId !== PANE) return next(e)
     if (e.component === 'AbovePrompt' && e.props.hasSurvey) return next(e)
 
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const { billingDay, currency, eurRate, planPrice, lang } = cfg
+    const { Box, Button, Input, Text } = $.ui.resolve(e)
+
+    // The setup steps take the band while they are open. The phone gets the numbers instead.
+    const setup = await read($, setupState)
+    if (e.component === 'AbovePrompt' && e.surface !== 'mobile' && isAsking(setup.step)) {
+      const { step, draft } = setup
+      const lang = draft.language ?? ctx.cfg.lang
+      const t = TEXTS[lang]
+      const steps = stepsFor(draft.plan)
+      const currency = draft.currency ?? ctx.cfg.currency
+      const move = (fn: (s: Setup) => Setup) => update($, setupState, fn)
+      const pick = (p: SetupDraft) => move(s => advance(s, p))
+      const fail = (error: string) => move(s => ({ ...s, error }))
+      const choice = (key: string, n: number, label: string, onPress: () => unknown) => (
+        <Button key={key} plain hotkey={String(n)} label={label} onPress={onPress} />
+      )
+
+      const question =
+        step === 'language'
+          ? t.setupLanguage
+          : step === 'plan'
+            ? t.setupPlan
+            : step === 'currency'
+              ? t.setupCurrency
+              : step === 'price'
+                ? t.setupPrice(draft.plan === 'team')
+                : step === 'day'
+                  ? t.setupDay
+                  : t.setupReview
+
+      const body =
+        step === 'language' ? (
+          (['en', 'de'] as const).map((l, i) => choice(`lang-${l}`, i + 1, LANGUAGE_NAMES[l], () => pick({ language: l })))
+        ) : step === 'plan' ? (
+          PLANS.map((p, i) => choice(`plan-${p}`, i + 1, t.planNames[p], () => pick({ plan: p })))
+        ) : step === 'currency' ? (
+          (['USD', 'EUR'] as const).map((c, i) => choice(`cur-${c}`, i + 1, t.currencyNames[c], () => pick({ currency: c })))
+        ) : step === 'price' ? (
+          [
+            ...priceChoices(draft.plan, currency, ctx.cfg.eurRate).map((c, i) =>
+              choice(
+                `price-${i}`,
+                i + 1,
+                t.priceChoice(c.kind, amountText(c.amount, currency, lang), amountText(c.usd, 'USD', lang)),
+                () => pick({ planPrice: c.amount }),
+              ),
+            ),
+            <Input
+              key="price"
+              label={t.otherAmount}
+              placeholder={t.amountPlaceholder}
+              submitLabel={t.next}
+              value={draft.planPrice !== undefined ? String(draft.planPrice) : undefined}
+              autoFocus
+              onSubmit={text => {
+                const amount = parseAmount(text)
+                void (amount === null ? fail(t.badPrice) : pick({ planPrice: amount }))
+              }}
+            />,
+          ]
+        ) : step === 'day' ? (
+          [
+            <Input
+              key="day"
+              label={t.dayLabel}
+              placeholder={t.dayPlaceholder}
+              submitLabel={t.next}
+              value={draft.billingDay ? String(draft.billingDay) : undefined}
+              autoFocus
+              onSubmit={text => {
+                const day = parseDay(text)
+                void (day === null ? fail(t.badDay) : pick({ billingDay: day }))
+              }}
+            />,
+            choice('skip-day', 1, t.skipDay, () => pick({ billingDay: 0 })),
+          ]
+        ) : (
+          [
+            <Text key="summary">
+              {draft.plan === 'api'
+                ? t.reviewApi(t.planNames.api, t.currencyNames[currency], LANGUAGE_NAMES[lang])
+                : t.reviewPlan(
+                    t.planNames[draft.plan ?? 'team'],
+                    amountText(draft.planPrice ?? 0, currency, lang),
+                    draft.billingDay ?? 0,
+                    LANGUAGE_NAMES[lang],
+                  )}
+            </Text>,
+            choice('save', 1, t.save, () => saveSetupPicks($, ctx, draft)),
+            choice('restart', 2, t.startOver, () => move(s => ({ step: 'language', draft: { language: s.draft.language }, error: null }))),
+          ]
+        )
+
+      return (
+        <Box>
+          <Box key="logo" width={3} flexShrink={0}>
+            <Text>{LOGO}</Text>
+          </Box>
+          <Box key="setup" flexDirection="column">
+            <Text bold>{t.setupTitle(steps.indexOf(step) + 1, steps.length)}</Text>
+            <Text>{question}</Text>
+            {body}
+            {setup.error ? <Text color="warning">{setup.error}</Text> : null}
+            <Box key="setup-actions" gap={2}>
+              {step !== 'language' ? <Button key="back" hotkey="b" dimColor label={t.back} onPress={() => move(goBack)} /> : null}
+              <Button key="later" hotkey="n" dimColor label={t.later} onPress={() => move(s => ({ ...s, step: 'closed' }))} />
+              <Button
+                key="never"
+                hotkey="x"
+                dimColor
+                label={t.never}
+                onPress={async () => {
+                  ctx.setupDoc = { ...ctx.setupDoc, done: true }
+                  await saveSetup($, ctx.setupDoc).catch(() => undefined)
+                  await move(s => ({ ...s, step: 'closed' }))
+                }}
+              />
+            </Box>
+            {e.surface === 'terminal' ? <Text dimColor>{t.setupKeys}</Text> : null}
+          </Box>
+        </Box>
+      )
+    }
+
+    const { billingDay, currency, eurRate, planPrice, lang } = ctx.cfg
     const t = TEXTS[lang]
     const s = normalize(await read($, snap))
     const isOpen = await read($, isHelpOpen)
     const now = s.now || (await $.clock.now())
 
-    const shown = figures(s, cfg, now)
+    const shown = figures(s, ctx.cfg, now)
     const { week, short, isShortTight, isSubscription, lastUsd, lastTokens, period, forecast, periodUsd, planUsd, valueRatio, since, perPercent } =
       shown
-    const last = lastLine(shown, cfg)
+    const last = lastLine(shown, ctx.cfg)
 
     const off = lang === 'de' ? 'aus' : 'off'
 
@@ -1292,6 +1728,11 @@ export const register: Register = (on, options) => {
                 planPrice > 0 ? money(planUsd, currency, eurRate, lang) : off,
               )}
             </Text>
+            {e.surface !== 'mobile' ? (
+              <Box key="setup-open" marginTop={1}>
+                <Button key="setup" label={t.changeSetup} onPress={() => openSetup($, ctx)} />
+              </Box>
+            ) : null}
           </Box>
         ) : null}
         </Box>

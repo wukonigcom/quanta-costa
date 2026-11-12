@@ -23,8 +23,26 @@ export type Snapshot = {
   now: number
 }
 
+// The plans the setup steps offer.
+export type PlanId = 'pro' | 'max' | 'ultra' | 'team' | 'api'
+
+// The setup steps in the band, one question each.
+export type SetupStep = 'language' | 'plan' | 'currency' | 'price' | 'day' | 'review'
+
+// What the person has picked so far.
+export type SetupDraft = {
+  language?: 'en' | 'de'
+  plan?: PlanId
+  currency?: 'USD' | 'EUR'
+  planPrice?: number
+  billingDay?: number
+}
+
+// The step shown ('idle': not asked yet this session, 'closed': done or put off), the picks, a typing error.
+export type Setup = { step: SetupStep | 'idle' | 'closed'; draft: SetupDraft; error: string | null }
+
 declare module 'claude-code' {
   interface PluginState {
-    'quanta-costa': { snap: Snapshot; isHelpOpen: boolean }
+    'quanta-costa': { snap: Snapshot; isHelpOpen: boolean; setup: Setup }
   }
 }

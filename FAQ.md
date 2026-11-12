@@ -15,6 +15,7 @@ All examples below use the same moment: **Saturday, October 10, 12:00**, a plan 
 - [Notices](#notices)
 - [Help, pane and phone](#help-pane-and-phone)
 - [Language and currency](#language-and-currency)
+- [First start and setup](#first-start-and-setup)
 - [Settings](#settings)
 - [Privacy](#privacy)
 - [Troubleshooting](#troubleshooting)
@@ -320,6 +321,40 @@ Set `eurRate` to the current euros per US dollar, for example `0.92`. The help s
 
 ---
 
+## First start and setup
+
+### What does Quanta Costa ask at the first start?
+
+When none of its settings are set, the band shows the setup steps instead of the numbers, one question at a time:
+
+1. Language: English or Deutsch.
+2. Plan: Pro, Max (was Max 5x), Ultra (was Max 20x), Team or Enterprise, or an API key without a plan.
+3. Currency: US dollars or euros, as on your receipt.
+4. Price per month: click the list price or type the amount from your receipt.
+5. Billing day: the day of the month your plan renews, from your receipt, or "I do not know yet".
+
+A last step shows everything in one line, for example `Ultra (was Max 20x) · €180.00 a month · renews on day 29 · English`, and **Save** stores it. With an API key there is no price and no billing day to ask for, and the help says the costs are real.
+
+Click an answer, or press its number while the prompt is empty. To type a price or a day in the terminal, move to the band with ctrl+x, then tab. In the desktop app, click into the field. The phone shows no setup steps, only the numbers.
+
+### What if I do not want to answer now?
+
+**Not now** hides the steps for this session; they come back at the next start. **Don't ask again** stops them for good. **Back** goes one step back.
+
+### Where do the offered prices come from?
+
+From the list prices on claude.com/pricing, in US dollars before tax: Pro $20 a month ($17 a month on the yearly plan), Max $100, Ultra $200. In euros Quanta Costa offers the dollar price converted with `eurRate`, rounded, for Ultra `about €178.00 (list price $200.00 converted)`, because the euro price on your receipt can differ (tax, country). Team and Enterprise depend on your seats, so you type the price per seat. Take the amount from your receipt where you can.
+
+### How do I change my plan or price later?
+
+Open the help (`h`) and press **Change plan and price** at the end, or type `/quanta-costa setup`. The steps open with your current settings filled in.
+
+### Where are my answers saved?
+
+In Claude Code's own plugin settings, the same place `/plugin configure quanta-costa` writes to. Until they are there, and for any answer Claude Code refused to store, Quanta Costa keeps them in `~/.claude/quanta-costa/setup.json`. Once Claude Code holds the same value, the copy in `setup.json` is dropped, so a later change in `/config` counts. A change you make in `/config` always wins.
+
+---
+
 ## Settings
 
 ### Which settings are there?
@@ -336,6 +371,8 @@ Set `eurRate` to the current euros per US dollar, for example `0.92`. The help s
 `0` for `billingDay` or `planPrice` hides the row again.
 
 ### How do I change them?
+
+The quickest way: **Change plan and price** at the end of the help, or `/quanta-costa setup` (see [First start and setup](#first-start-and-setup)).
 
 In Claude Code:
 
@@ -373,7 +410,7 @@ No. It makes no network calls. All numbers come from Claude Code itself through 
 
 ### What does it write and read on my disk?
 
-- **Writes** three small files in `~/.claude/quanta-costa/`, each with a backup copy written at most every ten minutes. `value.json`: for the last three periods, per session id and run, the first and the highest cost reading, and the moment counting began. `week.json`: the value per period and how much of the week was used when Quanta Costa first saw the current week. `ledger.json`: which notices were shown, and the amounts versions before 1.6.1 booked. No prompts, no code, no file names.
+- **Writes** small files in `~/.claude/quanta-costa/`. Three of them have a backup copy written at most every ten minutes. `value.json`: for the last three periods, per session id and run, the first and the highest cost reading, and the moment counting began. `week.json`: the value per period and how much of the week was used when Quanta Costa first saw the current week. `ledger.json`: which notices were shown, and the amounts versions before 1.6.1 booked. `setup.json`: your plan, whether the setup steps are done, and any answer Claude Code's settings do not hold yet. No prompts, no code, no file names.
 - **Reads** those files, and its own entry in `~/.claude/settings.json` when Claude Code hands over no settings. Nothing else.
 
 ### My computer crashed. Is the Value total gone?
