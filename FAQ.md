@@ -44,7 +44,7 @@ Period and Value only appear once you set `billingDay` and `planPrice`. Without 
 
 ### Are the costs real? Do I pay them?
 
-On a **Claude subscription (Pro or Max): no.** The amounts are what the same work would cost at API list prices, the figure `/cost` shows. You do not pay them on top of your plan; they only count against your weekly allowance. Real money is only charged for extra usage beyond your limit, and only if you turned that on.
+On a **Claude subscription (Pro, Max or Ultra): no.** The amounts are what the same work would cost at API list prices, the figure `/cost` shows. You do not pay them on top of your plan; they only count against your weekly allowance. Real money is only charged for extra usage beyond your limit, and only if you turned that on.
 
 On an **API key: yes.** Claude Code then reports no subscription limits, and the help says so in its own line:
 

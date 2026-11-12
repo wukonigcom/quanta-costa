@@ -17,7 +17,7 @@ Quanta Costa is a [Claude Code](https://claude.com/claude-code) plugin that answ
 
 ## Features
 
-- **Weekly limit bar** for Claude Pro and Max: how much is used, how much is free, when it resets (weekday and time, as in the Claude app). Green, yellow from 70%, red from 90%. Without a weekly limit it shows a spend limit or the 5-hour window instead.
+- **Weekly limit bar** for Claude Pro, Max and Ultra: how much is used, how much is free, when it resets (weekday and time, as in the Claude app). Green, yellow from 70%, red from 90%. Without a weekly limit it shows a spend limit or the 5-hour window instead.
 - **Pace forecast**: know before you hit the limit. "on track" if your week lasts until the reset, otherwise "runs out Fri 14:00".
 - **Plan value**: the API value of all your sessions this period against your plan price, e.g. `2.1×`. Above 1× your subscription has paid for itself. If counting began after the period started, the row says since when. The last period's value stays in the help and the pane.
 - **Value per percent of your week**: how much API value one percent of your weekly limit has bought this week, e.g. `1% ≈ $25.00 value`. It shows what a whole week of your plan is worth.
@@ -86,7 +86,7 @@ Change them later with `/plugin configure quanta-costa` in Claude Code or `claud
 The short answers are here. The **[full FAQ](FAQ.md)** covers every feature with worked examples: Period, Week and pace, the 5-hour limit, Session, Value, notices, the phone pane, language, currency, settings and troubleshooting.
 
 **Are the costs real?**
-On a Claude subscription (Pro or Max): no, they are hypothetical. Quanta Costa shows what the session would cost at API list prices, the same figure `/cost` totals. You do not pay it on top; it only counts against your weekly allowance. You only really pay for extra usage beyond your limit, if you turned it on. On an API key, Claude Code reports no subscription limits, and the help says the costs are real.
+On a Claude subscription (Pro, Max or Ultra): no, they are hypothetical. Quanta Costa shows what the session would cost at API list prices, the same figure `/cost` totals. You do not pay it on top; it only counts against your weekly allowance. You only really pay for extra usage beyond your limit, if you turned it on. On an API key, Claude Code reports no subscription limits, and the help says the costs are real.
 
 **What are the weekly limit and the 5-hour limit?**
 Claude plans meter usage in a weekly allowance, and some plans also in a short 5-hour window. Quanta Costa shows the weekly one as a bar. It only warns about the 5-hour one when it gets tight, because then it can stop you before the week does. If your plan has no 5-hour window, the warning never shows.
